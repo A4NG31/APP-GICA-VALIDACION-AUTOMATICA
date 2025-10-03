@@ -46,6 +46,116 @@ st.set_page_config(
     layout="wide"
 )
 
+# ===== CSS Sidebar =====
+st.markdown("""
+<style>
+/* ===== Sidebar ===== */
+[data-testid="stSidebar"] {
+    background-color: #1E1E2F !important;
+    color: white !important;
+    width: 300px !important;
+    padding: 20px 10px 20px 10px !important;
+    border-right: 1px solid #333 !important;
+}
+
+/* Texto general en blanco */
+[data-testid="stSidebar"] h1, 
+[data-testid="stSidebar"] h2, 
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stCheckbox label {
+    color: white !important; 
+}
+
+/* SOLO el label del file_uploader en blanco */
+[data-testid="stSidebar"] .stFileUploader > label {
+    color: white !important;
+    font-weight: bold;
+}
+
+/* Mantener en negro el resto del uploader */
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-title,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-subtitle,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-list button,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-Item-name,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-Item-status,
+[data-testid="stSidebar"] .stFileUploader span,
+[data-testid="stSidebar"] .stFileUploader div {
+    color: black !important;
+}
+
+/* ===== Botón de expandir/cerrar sidebar ===== */
+[data-testid="stSidebarNav"] button {
+    background: #2E2E3E !important;
+    color: white !important;
+    border-radius: 6px !important;
+}
+
+/* ===== Encabezados del sidebar ===== */
+[data-testid="stSidebar"] h1, 
+[data-testid="stSidebar"] h2, 
+[data-testid="stSidebar"] h3 {
+    color: #00CFFF !important;
+}
+
+/* ===== Inputs de texto en el sidebar ===== */
+[data-testid="stSidebar"] input[type="text"],
+[data-testid="stSidebar"] input[type="password"] {
+    color: black !important;
+    background-color: white !important;
+    border-radius: 6px !important;
+    padding: 5px !important;
+}
+
+/* ===== BOTÓN "BROWSE FILES" ===== */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button {
+    color: black !important;
+    background-color: #f0f0f0 !important;
+    border: 1px solid #ccc !important;
+}
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button:hover {
+    background-color: #e0e0e0 !important;
+}
+
+/* ===== Texto en multiselect ===== */
+[data-testid="stSidebar"] .stMultiSelect label,
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
+    color: white !important;
+}
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="tag"] {
+    color: black !important;
+    background-color: #e0e0e0 !important;
+}
+
+/* ===== ICONOS DE AYUDA (?) EN EL SIDEBAR ===== */
+[data-testid="stSidebar"] svg.icon {
+    stroke: white !important;
+    color: white !important;
+    fill: none !important;
+    opacity: 1 !important;
+}
+
+/* ===== MEJORAS PARA STREAMLIT CLOUD ===== */
+.stSpinner > div > div {
+    border-color: #00CFFF !important;
+}
+
+.stProgress > div > div > div > div {
+    background-color: #00CFFF !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Logo de GoPass con HTML
+st.markdown("""
+<div style="display: flex; justify-content: center; margin-bottom: 30px;">
+    <img src="https://i.imgur.com/z9xt46F.jpeg"
+         style="width: 50%; border-radius: 10px; display: block; margin: 0 auto;" 
+         alt="Logo Gopass">
+</div>
+""", unsafe_allow_html=True)
+
 # ===== FUNCIONES DE EXTRACCIÓN DE POWER BI (DEL CÓDIGO QUE FUNCIONA) =====
 
 def setup_driver():
