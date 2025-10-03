@@ -13,6 +13,168 @@ import os
 # Configuración de la página
 st.set_page_config(page_title="Validador Power BI GICA", layout="wide")
 
+# ===== CSS Sidebar =====
+st.markdown("""
+<style>
+/* ===== Sidebar ===== */
+[data-testid="stSidebar"] {
+    background-color: #1E1E2F !important;  /* fondo oscuro elegante */
+    color: white !important;
+    width: 300px !important;  /* ancho fijo */
+    padding: 20px 10px 20px 10px !important;
+    border-right: 1px solid #333 !important;
+}
+
+/* Texto general en blanco */
+[data-testid="stSidebar"] h1, 
+[data-testid="stSidebar"] h2, 
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] .stCheckbox label {
+    color: white !important; 
+}
+
+/* SOLO el label del file_uploader en blanco */
+[data-testid="stSidebar"] .stFileUploader > label {
+    color: white !important;
+    font-weight: bold;
+}
+
+/* Mantener en negro el resto del uploader */
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-title,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-subtitle,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-AddFiles-list button,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-Item-name,
+[data-testid="stSidebar"] .stFileUploader .uppy-Dashboard-Item-status,
+[data-testid="stSidebar"] .stFileUploader span,
+[data-testid="stSidebar"] .stFileUploader div {
+    color: black !important;
+}
+
+/* ===== Botón de expandir/cerrar sidebar ===== */
+[data-testid="stSidebarNav"] button {
+    background: #2E2E3E !important;
+    color: white !important;
+    border-radius: 6px !important;
+}
+
+/* ===== Encabezados del sidebar ===== */
+[data-testid="stSidebar"] h1, 
+[data-testid="stSidebar"] h2, 
+[data-testid="stSidebar"] h3 {
+    color: #00CFFF !important;
+}
+
+/* ===== Inputs de texto en el sidebar ===== */
+[data-testid="stSidebar"] input[type="text"],
+[data-testid="stSidebar"] input[type="password"] {
+    color: black !important;
+    background-color: white !important;
+    border-radius: 6px !important;
+    padding: 5px !important;
+}
+
+/* ===== Icono de ojo en campo de contraseña ===== */
+[data-testid="stSidebar"] button[data-testid="InputMenuButton"] {
+    background-color: white !important;
+}
+[data-testid="stSidebar"] button[data-testid="InputMenuButton"] svg {
+    fill: black !important;
+    color: black !important;
+}
+
+/* ===== BOTÓN "BROWSE FILES" ===== */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button {
+    color: black !important;
+    background-color: #f0f0f0 !important;
+    border: 1px solid #ccc !important;
+}
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button:hover {
+    background-color: #e0e0e0 !important;
+}
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button:focus {
+    outline: 2px solid #4d90fe !important;
+}
+/* Texto dentro del botón Browse files */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span {
+    color: black !important;
+    font-weight: bold !important;
+}
+/* Texto alternativo para el botón Browse files */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button::after {
+    content: "Buscar archivo" !important;
+    color: black !important;
+}
+/* Ocultar el texto original si es necesario */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span:first-child {
+    font-size: 0 !important;
+}
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span:first-child::after {
+    content: "Buscar archivo" !important;
+    font-size: 14px !important;
+    color: black !important;
+    font-weight: bold !important;
+}
+
+/* ===== Iconos dentro del file uploader ===== */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-icon svg {
+    fill: black !important;
+}
+
+/* ===== Borde del área de carga ===== */
+[data-testid="stSidebar"] .uppy-Dashboard-AddFiles {
+    border: 2px dashed #ccc !important;
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ===== Texto de marcadores en sidebar ===== */
+[data-testid="stSidebar"] .stMarkdown p {
+    color: white !important;
+}
+
+/* ===== Checkboxes ===== */
+[data-testid="stSidebar"] .stCheckbox label {
+    color: white !important;
+}
+
+/* ===== Texto en multiselect ===== */
+[data-testid="stSidebar"] .stMultiSelect label,
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {
+    color: white !important;
+}
+[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="tag"] {
+    color: black !important;
+    background-color: #e0e0e0 !important;
+}
+
+/* ===== Botón de eliminar archivo ===== */
+[data-testid="stSidebar"] .uppy-Dashboard-Item-action--remove svg {
+    fill: black !important;
+}
+
+/* ===== ICONOS DE AYUDA (?) EN EL SIDEBAR ===== */
+[data-testid="stSidebar"] svg.icon {
+    stroke: white !important;   /* fuerza el trazo */
+    color: white !important;    /* asegura currentColor */
+    fill: none !important;      /* mantiene el estilo original */
+    opacity: 1 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+# Logo de GoPass con HTML
+st.markdown("""
+<div style="display: flex; justify-content: center; margin-bottom: 30px;">
+    <img src="https://i.imgur.com/z9xt46F.jpeg"
+         style="width: 50%; border-radius: 10px; display: block; margin: 0 auto;" 
+         alt="Logo Gopass">
+</div>
+""", unsafe_allow_html=True)
+
 def setup_driver():
     """Configurar ChromeDriver para Selenium"""
     chrome_options = Options()
