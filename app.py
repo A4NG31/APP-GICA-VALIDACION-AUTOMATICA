@@ -717,3 +717,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    
+    # Footer
+    st.markdown("---")
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit</div>', unsafe_allow_html=True)
