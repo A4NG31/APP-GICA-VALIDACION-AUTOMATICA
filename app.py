@@ -6,7 +6,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 import time
 import re
@@ -117,7 +116,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def setup_driver():
-    """Configurar ChromeDriver para Selenium - VERSIÓN STREAMLIT CLOUD"""
+    """Configurar ChromeDriver para Selenium - VERSIÓN STREAMLIT CLOUD CORREGIDA"""
     try:
         # Configurar opciones de Chrome para entornos sin display
         chrome_options = Options()
@@ -131,8 +130,8 @@ def setup_driver():
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--disable-javascript")  # Opcional: para más velocidad
+        # chrome_options.add_argument("--disable-images")  # Comentado para mejor compatibilidad
+        # chrome_options.add_argument("--disable-javascript")  # Comentado - Power BI necesita JS
         
         # User agent
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -142,19 +141,36 @@ def setup_driver():
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_argument("--remote-debugging-port=9222")
         
-        # Usar webdriver-manager para manejar ChromeDriver automáticamente
-        service = Service(ChromeDriverManager().install())
+        # SOLUCIÓN: Usar ChromeDriver directamente sin webdriver-manager
+        # En Streamlit Cloud, Chrome ya está instalado, usamos la ubicación por defecto
+        service = Service('/usr/bin/chromedriver')  # Ruta común en Streamlit Cloud
+        
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
         # Configuraciones adicionales del driver
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        driver.set_page_load_timeout(30)
+        driver.set_page_load_timeout(45)  # Aumentado a 45 segundos
         
         return driver
         
     except Exception as e:
         st.error(f"❌ Error configurando ChromeDriver: {str(e)}")
-        return None
+        
+        # Fallback: intentar sin Service explícito
+        try:
+            st.info("🔄 Intentando configuración alternativa...")
+            chrome_options = Options()
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            
+            driver = webdriver.Chrome(options=chrome_options)
+            return driver
+        except Exception as e2:
+            st.error(f"❌ Error en configuración alternativa: {str(e2)}")
+            return None
 
 def click_conciliacion_date(driver, fecha_objetivo):
     """Hacer clic en la conciliación específica por fecha"""
@@ -206,7 +222,7 @@ def find_valor_a_pagar_comercio_card(driver):
         ]
         
         titulo_element = None
-        for selector in selectors:
+        for selector in titulo_selectors:  # CORREGIDO: usar titulo_selectors en lugar de selectors
             try:
                 elementos = driver.find_elements(By.XPATH, selector)
                 for elemento in elementos:
@@ -380,8 +396,8 @@ def extract_excel_values(uploaded_file):
         
         return valores, total_general
         
-    except Exception:
-        st.error(f"❌ Error procesando archivo Excel")
+    except Exception as e:
+        st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, 0
 
 def compare_values(valor_powerbi_texto, valor_esperado):
@@ -401,50 +417,55 @@ def compare_values(valor_powerbi_texto, valor_esperado):
         coinciden = powerbi_numero == excel_numero
         return powerbi_numero, excel_numero, valor_powerbi_texto, coinciden
         
-    except Exception:
-        st.error(f"❌ Error en comparación")
+    except Exception as e:
+        st.error(f"❌ Error en comparación: {str(e)}")
         return None, None, valor_powerbi_texto, False
 
 def extract_powerbi_data(fecha_objetivo):
-    """Función principal para extraer datos de Power BI"""
+    """Función principal para extraer datos de Power BI - VERSIÓN MEJORADA"""
     
     REPORT_URL = "https://app.powerbi.com/view?r=eyJrIjoiYTFmOWZkMDAtY2IwYi00OTg4LWIxZDctNGZmYmU0NTMxNGI1IiwidCI6ImY5MTdlZDFiLWI0MDMtNDljNS1iODBiLWJhYWUzY2UwMzc1YSJ9"
     
     driver = setup_driver()
     if not driver:
+        st.error("❌ No se pudo inicializar el navegador")
         return None
     
     try:
-        # 1. Navegar al reporte
-        with st.spinner("Conectando con Power BI..."):
+        # 1. Navegar al reporte con más tiempo de espera
+        with st.spinner("🔄 Conectando con Power BI... Esto puede tomar hasta 30 segundos"):
             driver.get(REPORT_URL)
-            time.sleep(12)  # Más tiempo para carga inicial
+            time.sleep(15)  # Tiempo generoso para carga inicial
         
-        # 2. Tomar screenshot inicial
-        driver.save_screenshot("powerbi_inicial.png")
+        # Verificar si la página cargó correctamente
+        if "Power BI" not in driver.title and "powerbi" not in driver.current_url:
+            st.warning("⚠️ La página podría no haber cargado correctamente")
         
-        # 3. Hacer clic en la conciliación específica
-        if not click_conciliacion_date(driver, fecha_objetivo):
-            return None
+        # 2. Hacer clic en la conciliación específica
+        with st.spinner("🔍 Buscando conciliación..."):
+            if not click_conciliacion_date(driver, fecha_objetivo):
+                st.error("❌ No se pudo encontrar la conciliación para la fecha especificada")
+                return None
         
-        # 4. Esperar a que cargue la selección
-        time.sleep(4)
-        driver.save_screenshot("powerbi_despues_seleccion.png")
+        # 3. Esperar a que cargue la selección
+        time.sleep(8)
         
-        # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
-        valor_texto = find_valor_a_pagar_comercio_card(driver)
+        # 4. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
+        with st.spinner("💰 Extrayendo valor de Power BI..."):
+            valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. Tomar screenshot final
-        driver.save_screenshot("powerbi_final.png")
-        
-        return {
-            'valor_texto': valor_texto,
-            'screenshots': {
-                'inicial': 'powerbi_inicial.png',
-                'seleccion': 'powerbi_despues_seleccion.png',
-                'final': 'powerbi_final.png'
+        if valor_texto:
+            st.success("✅ Valor extraído correctamente")
+            return {
+                'valor_texto': valor_texto,
+                'status': 'success'
             }
-        }
+        else:
+            st.error("❌ No se pudo encontrar el valor en el reporte")
+            return {
+                'valor_texto': None,
+                'status': 'value_not_found'
+            }
         
     except Exception as e:
         st.error(f"❌ Error durante la extracción: {str(e)}")
@@ -547,22 +568,12 @@ def main():
                                 st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
                                 st.write(f"**Diferencia:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
                         
-                        # Mostrar screenshots
-                        with st.expander("📸 Ver capturas del proceso"):
-                            col1, col2, col3 = st.columns(3)
-                            screenshots = resultados.get('screenshots', {})
-                            
-                            if 'inicial' in screenshots and os.path.exists(screenshots['inicial']):
-                                with col1:
-                                    st.image(screenshots['inicial'], caption="Reporte Inicial", use_column_width=True)
-                            
-                            if 'seleccion' in screenshots and os.path.exists(screenshots['seleccion']):
-                                with col2:
-                                    st.image(screenshots['seleccion'], caption="Después de Selección", use_column_width=True)
-                            
-                            if 'final' in screenshots and os.path.exists(screenshots['final']):
-                                with col3:
-                                    st.image(screenshots['final'], caption="Vista Final", use_column_width=True)
+                        # Mostrar screenshots (si están disponibles)
+                        try:
+                            with st.expander("📸 Ver capturas del proceso"):
+                                st.info("Las capturas de pantalla están deshabilitadas en esta versión para mejor rendimiento")
+                        except:
+                            pass
                                 
                     elif resultados:
                         st.error("❌ Se accedió al reporte pero no se encontró el valor")
