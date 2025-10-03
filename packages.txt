@@ -1,10 +1,2 @@
-libnss3
-libgconf-2-4
-libxi6
-libxext6
-libxss1
-libxtst6
-xdg-utils
-libatk-bridge2.0-0
-libgtk-3-0
-libx11-xcb1
+chromium
+chromium-driver
