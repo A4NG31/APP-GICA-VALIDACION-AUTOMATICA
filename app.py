@@ -6,6 +6,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 import time
 import re
 import os
@@ -18,9 +20,9 @@ st.markdown("""
 <style>
 /* ===== Sidebar ===== */
 [data-testid="stSidebar"] {
-    background-color: #1E1E2F !important;  /* fondo oscuro elegante */
+    background-color: #1E1E2F !important;
     color: white !important;
-    width: 300px !important;  /* ancho fijo */
+    width: 300px !important;
     padding: 20px 10px 20px 10px !important;
     border-right: 1px solid #333 !important;
 }
@@ -75,15 +77,6 @@ st.markdown("""
     padding: 5px !important;
 }
 
-/* ===== Icono de ojo en campo de contraseña ===== */
-[data-testid="stSidebar"] button[data-testid="InputMenuButton"] {
-    background-color: white !important;
-}
-[data-testid="stSidebar"] button[data-testid="InputMenuButton"] svg {
-    fill: black !important;
-    color: black !important;
-}
-
 /* ===== BOTÓN "BROWSE FILES" ===== */
 [data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button {
     color: black !important;
@@ -92,50 +85,6 @@ st.markdown("""
 }
 [data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button:hover {
     background-color: #e0e0e0 !important;
-}
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button:focus {
-    outline: 2px solid #4d90fe !important;
-}
-/* Texto dentro del botón Browse files */
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span {
-    color: black !important;
-    font-weight: bold !important;
-}
-/* Texto alternativo para el botón Browse files */
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button::after {
-    content: "Buscar archivo" !important;
-    color: black !important;
-}
-/* Ocultar el texto original si es necesario */
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span:first-child {
-    font-size: 0 !important;
-}
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-list button span:first-child::after {
-    content: "Buscar archivo" !important;
-    font-size: 14px !important;
-    color: black !important;
-    font-weight: bold !important;
-}
-
-/* ===== Iconos dentro del file uploader ===== */
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles-icon svg {
-    fill: black !important;
-}
-
-/* ===== Borde del área de carga ===== */
-[data-testid="stSidebar"] .uppy-Dashboard-AddFiles {
-    border: 2px dashed #ccc !important;
-    background-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-/* ===== Texto de marcadores en sidebar ===== */
-[data-testid="stSidebar"] .stMarkdown p {
-    color: white !important;
-}
-
-/* ===== Checkboxes ===== */
-[data-testid="stSidebar"] .stCheckbox label {
-    color: white !important;
 }
 
 /* ===== Texto en multiselect ===== */
@@ -148,23 +97,15 @@ st.markdown("""
     background-color: #e0e0e0 !important;
 }
 
-/* ===== Botón de eliminar archivo ===== */
-[data-testid="stSidebar"] .uppy-Dashboard-Item-action--remove svg {
-    fill: black !important;
-}
-
 /* ===== ICONOS DE AYUDA (?) EN EL SIDEBAR ===== */
 [data-testid="stSidebar"] svg.icon {
-    stroke: white !important;   /* fuerza el trazo */
-    color: white !important;    /* asegura currentColor */
-    fill: none !important;      /* mantiene el estilo original */
+    stroke: white !important;
+    color: white !important;
+    fill: none !important;
     opacity: 1 !important;
 }
 </style>
 """, unsafe_allow_html=True)
-
-
-
 
 # Logo de GoPass con HTML
 st.markdown("""
@@ -176,28 +117,43 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def setup_driver():
-    """Configurar ChromeDriver para Selenium"""
-    chrome_options = Options()
-    
-    # Opciones para mejor compatibilidad
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-    
-    # User agent real
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
+    """Configurar ChromeDriver para Selenium - VERSIÓN STREAMLIT CLOUD"""
     try:
-        driver = webdriver.Chrome(options=chrome_options)
+        # Configurar opciones de Chrome para entornos sin display
+        chrome_options = Options()
+        
+        # Opciones esenciales para servidores headless
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--disable-images")
+        chrome_options.add_argument("--disable-javascript")  # Opcional: para más velocidad
+        
+        # User agent
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        # Configuraciones adicionales para estabilidad
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        chrome_options.add_argument("--remote-debugging-port=9222")
+        
+        # Usar webdriver-manager para manejar ChromeDriver automáticamente
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Configuraciones adicionales del driver
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        driver.set_page_load_timeout(30)
+        
         return driver
+        
     except Exception as e:
-        st.error(f"Error al configurar ChromeDriver: {e}")
+        st.error(f"❌ Error configurando ChromeDriver: {str(e)}")
         return None
 
 def click_conciliacion_date(driver, fecha_objetivo):
@@ -225,7 +181,7 @@ def click_conciliacion_date(driver, fecha_objetivo):
         if elemento_conciliacion:
             # Hacer clic en el elemento
             driver.execute_script("arguments[0].scrollIntoView(true);", elemento_conciliacion)
-            time.sleep(1)
+            time.sleep(2)
             driver.execute_script("arguments[0].click();", elemento_conciliacion)
             time.sleep(3)
             return True
@@ -250,7 +206,7 @@ def find_valor_a_pagar_comercio_card(driver):
         ]
         
         titulo_element = None
-        for selector in titulo_selectors:
+        for selector in selectors:
             try:
                 elementos = driver.find_elements(By.XPATH, selector)
                 for elemento in elementos:
@@ -313,7 +269,7 @@ def find_valor_a_pagar_comercio_card(driver):
         return None
 
 def extract_excel_values(uploaded_file):
-    """Extraer valores de las 3 hojas del Excel - VERSIÓN LIMPIA"""
+    """Extraer valores de las 3 hojas del Excel"""
     try:
         st.info("📊 Procesando archivo Excel...")
         
@@ -412,28 +368,24 @@ def extract_excel_values(uploaded_file):
                             valores[hoja] = valor_numerico
                             total_general += valor_numerico
                         else:
-                            st.warning(f"Valor muy pequeño en {hoja}, usando 0")
                             valores[hoja] = 0
                             
-                    except Exception as conv_error:
-                        st.error(f"Error convirtiendo valor de {hoja}")
+                    except Exception:
                         valores[hoja] = 0
                 else:
-                    st.error(f"No se encontró valor en {hoja}")
                     valores[hoja] = 0
                     
-            except Exception as e:
-                st.error(f"Error en hoja {hoja}")
+            except Exception:
                 valores[hoja] = 0
         
         return valores, total_general
         
-    except Exception as e:
+    except Exception:
         st.error(f"❌ Error procesando archivo Excel")
         return {}, 0
 
 def compare_values(valor_powerbi_texto, valor_esperado):
-    """Comparar valores - VERSIÓN LIMPIA"""
+    """Comparar valores"""
     try:
         # Limpiar el valor de Power BI
         powerbi_limpio = str(valor_powerbi_texto)
@@ -449,7 +401,7 @@ def compare_values(valor_powerbi_texto, valor_esperado):
         coinciden = powerbi_numero == excel_numero
         return powerbi_numero, excel_numero, valor_powerbi_texto, coinciden
         
-    except Exception as e:
+    except Exception:
         st.error(f"❌ Error en comparación")
         return None, None, valor_powerbi_texto, False
 
@@ -466,7 +418,7 @@ def extract_powerbi_data(fecha_objetivo):
         # 1. Navegar al reporte
         with st.spinner("Conectando con Power BI..."):
             driver.get(REPORT_URL)
-            time.sleep(10)
+            time.sleep(12)  # Más tiempo para carga inicial
         
         # 2. Tomar screenshot inicial
         driver.save_screenshot("powerbi_inicial.png")
@@ -476,7 +428,7 @@ def extract_powerbi_data(fecha_objetivo):
             return None
         
         # 4. Esperar a que cargue la selección
-        time.sleep(3)
+        time.sleep(4)
         driver.save_screenshot("powerbi_despues_seleccion.png")
         
         # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
@@ -495,10 +447,11 @@ def extract_powerbi_data(fecha_objetivo):
         }
         
     except Exception as e:
-        st.error(f"❌ Error durante la extracción")
+        st.error(f"❌ Error durante la extracción: {str(e)}")
         return None
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
 
 def main():
     st.title("💰 Validador Power BI - Conciliaciones APP GICA")
