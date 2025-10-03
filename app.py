@@ -1,15 +1,9 @@
 import streamlit as st
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.chrome.service import Service
 import time
 import re
 import os
+import sys
 
 # Configuración de la página
 st.set_page_config(page_title="Validador Power BI GICA", layout="wide")
@@ -116,61 +110,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def setup_driver():
-    """Configurar ChromeDriver para Selenium - VERSIÓN STREAMLIT CLOUD CORREGIDA"""
+    """Configurar ChromeDriver usando Selenium Base - VERSIÓN STREAMLIT CLOUD"""
     try:
-        # Configurar opciones de Chrome para entornos sin display
-        chrome_options = Options()
+        # Intentar importar seleniumbase
+        from seleniumbase import Driver
         
-        # Opciones esenciales para servidores headless
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        # chrome_options.add_argument("--disable-images")  # Comentado para mejor compatibilidad
-        # chrome_options.add_argument("--disable-javascript")  # Comentado - Power BI necesita JS
-        
-        # User agent
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        
-        # Configuraciones adicionales para estabilidad
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument("--remote-debugging-port=9222")
-        
-        # SOLUCIÓN: Usar ChromeDriver directamente sin webdriver-manager
-        # En Streamlit Cloud, Chrome ya está instalado, usamos la ubicación por defecto
-        service = Service('/usr/bin/chromedriver')  # Ruta común en Streamlit Cloud
-        
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        
-        # Configuraciones adicionales del driver
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        driver.set_page_load_timeout(45)  # Aumentado a 45 segundos
+        # Configurar driver con SeleniumBase (maneja ChromeDriver automáticamente)
+        driver = Driver(
+            browser="chrome",
+            headless=True,
+            headless2=True,  # Modo headless mejorado
+            undetectable=True,  # Modo indetectable
+            incognito=True,  # Modo incógnito
+            disable_gpu=True,  # Deshabilitar GPU
+            disable_images=False,  # Permitir imágenes para Power BI
+            block_images=False,  # No bloquear imágenes
+            user_data_dir=None,  # No usar directorio de usuario persistente
+            extension_zip=None,  # Sin extensiones
+            extension_dir=None,  # Sin directorio de extensiones
+            page_load_strategy="normal",  # Estrategia de carga normal
+            use_auto_ext=False,  # No usar extensiones automáticas
+            log_cdp_events=False,  # No registrar eventos CDP
+            no_sandbox=True,  # Sin sandbox para servidores
+            disable_dev_shm=True,  # Deshabilitar shared memory
+            _disable_csp=True,  # Deshabilitar política de seguridad de contenido
+            timeout=45,  # Timeout aumentado
+        )
         
         return driver
         
+    except ImportError:
+        st.error("❌ SeleniumBase no está instalado. Instálalo con: pip install seleniumbase")
+        return None
     except Exception as e:
         st.error(f"❌ Error configurando ChromeDriver: {str(e)}")
-        
-        # Fallback: intentar sin Service explícito
-        try:
-            st.info("🔄 Intentando configuración alternativa...")
-            chrome_options = Options()
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
-            
-            driver = webdriver.Chrome(options=chrome_options)
-            return driver
-        except Exception as e2:
-            st.error(f"❌ Error en configuración alternativa: {str(e2)}")
-            return None
+        return None
 
 def click_conciliacion_date(driver, fecha_objetivo):
     """Hacer clic en la conciliación específica por fecha"""
@@ -182,6 +156,8 @@ def click_conciliacion_date(driver, fecha_objetivo):
             f"//*[contains(text(), '{fecha_objetivo} 00:00 al {fecha_objetivo} 11:59')]",
             f"//div[contains(text(), '{fecha_objetivo}')]",
             f"//span[contains(text(), '{fecha_objetivo}')]",
+            f"//*[contains(@title, '{fecha_objetivo}')]",
+            f"//*[contains(@aria-label, '{fecha_objetivo}')]",
         ]
         
         elemento_conciliacion = None
@@ -196,13 +172,20 @@ def click_conciliacion_date(driver, fecha_objetivo):
         
         if elemento_conciliacion:
             # Hacer clic en el elemento
-            driver.execute_script("arguments[0].scrollIntoView(true);", elemento_conciliacion)
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", elemento_conciliacion)
             time.sleep(2)
-            driver.execute_script("arguments[0].click();", elemento_conciliacion)
-            time.sleep(3)
+            
+            # Intentar diferentes métodos de clic
+            try:
+                elemento_conciliacion.click()
+            except:
+                driver.execute_script("arguments[0].click();", elemento_conciliacion)
+            
+            time.sleep(5)  # Más tiempo para que cargue
             return True
         else:
             st.error("❌ No se encontró la conciliación para la fecha especificada")
+            st.info("💡 Sugerencia: Verifica que la fecha esté en formato YYYY-MM-DD")
             return False
             
     except Exception as e:
@@ -219,10 +202,14 @@ def find_valor_a_pagar_comercio_card(driver):
             "//*[contains(text(), 'VALOR A PAGAR') and contains(text(), 'COMERCIO')]",
             "//*[contains(text(), 'Valor A Pagar') and contains(text(), 'Comercio')]",
             "//*[contains(text(), 'PAGAR A COMERCIO')]",
+            "//*[contains(text(), 'Valor a Pagar a Comercio')]",
+            "//*[@data-title='VALOR A PAGAR A COMERCIO']",
+            "//*[contains(@class, 'card') and contains(text(), 'PAGAR')]",
+            "//*[contains(@class, 'valuecard') and contains(text(), 'COMERCIO')]",
         ]
         
         titulo_element = None
-        for selector in titulo_selectors:  # CORREGIDO: usar titulo_selectors en lugar de selectors
+        for selector in titulo_selectors:
             try:
                 elementos = driver.find_elements(By.XPATH, selector)
                 for elemento in elementos:
@@ -238,47 +225,86 @@ def find_valor_a_pagar_comercio_card(driver):
         
         if not titulo_element:
             st.error("❌ No se encontró 'VALOR A PAGAR A COMERCIO' en el reporte")
+            # Mostrar información de depuración
+            st.info("🔍 Buscando elementos visibles en la página...")
+            try:
+                elementos_visibles = driver.find_elements(By.XPATH, "//*[text()]")
+                textos_encontrados = []
+                for elem in elementos_visibles[:20]:  # Primeros 20 elementos
+                    if elem.is_displayed():
+                        texto = elem.text.strip()
+                        if texto and len(texto) > 0:
+                            textos_encontrados.append(texto)
+                if textos_encontrados:
+                    st.write("Elementos visibles encontrados:", textos_encontrados[:10])
+            except:
+                pass
             return None
         
-        # Buscar el valor numérico debajo del título
+        # Buscar el valor numérico - Estrategias múltiples
+        valor_encontrado = None
+        
         # Estrategia 1: Buscar en el mismo contenedor
         try:
-            container = titulo_element.find_element(By.XPATH, "./..")
-            numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), '$') or contains(text(), ',') or contains(text(), '.')]")
+            container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'card') or contains(@class, 'visual')][1]")
+            numeric_elements = container.find_elements(By.XPATH, ".//*[text()]")
             
             for elem in numeric_elements:
                 texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
-                    return texto
+                if (texto and any(char.isdigit() for char in texto) and 
+                    texto != titulo_element.text and
+                    len(texto) > 3):
+                    # Verificar si es un valor monetario
+                    if '$' in texto or (',' in texto and '.' in texto):
+                        valor_encontrado = texto
+                        break
         except:
             pass
         
-        # Estrategia 2: Buscar en elementos hermanos
-        try:
-            parent = titulo_element.find_element(By.XPATH, "./..")
-            siblings = parent.find_elements(By.XPATH, "./*")
-            
-            for sibling in siblings:
-                if sibling != titulo_element:
-                    texto = sibling.text.strip()
-                    if texto and any(char.isdigit() for char in texto):
-                        return texto
-        except:
-            pass
+        # Estrategia 2: Buscar elementos hermanos
+        if not valor_encontrado:
+            try:
+                parent = titulo_element.find_element(By.XPATH, "./..")
+                siblings = parent.find_elements(By.XPATH, "./*")
+                
+                for sibling in siblings:
+                    if sibling != titulo_element:
+                        texto = sibling.text.strip()
+                        if texto and any(char.isdigit() for char in texto) and len(texto) > 3:
+                            valor_encontrado = texto
+                            break
+            except:
+                pass
         
-        # Estrategia 3: Buscar debajo del título
-        try:
-            following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]/following::*")
-            
-            for elem in following_elements[:10]:
-                texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and len(texto) < 50:
-                    return texto
-        except:
-            pass
+        # Estrategia 3: Buscar siguiente elemento hermano
+        if not valor_encontrado:
+            try:
+                siguiente_hermano = titulo_element.find_element(By.XPATH, "./following-sibling::*[1]")
+                texto = siguiente_hermano.text.strip()
+                if texto and any(char.isdigit() for char in texto):
+                    valor_encontrado = texto
+            except:
+                pass
         
-        st.error("❌ No se pudo encontrar el valor numérico")
-        return None
+        # Estrategia 4: Buscar en elementos cercanos
+        if not valor_encontrado:
+            try:
+                elementos_cercanos = driver.find_elements(By.XPATH, 
+                    f"//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]/following::*[position()<=5]")
+                
+                for elem in elementos_cercanos:
+                    texto = elem.text.strip()
+                    if texto and any(char.isdigit() for char in texto) and len(texto) < 50:
+                        valor_encontrado = texto
+                        break
+            except:
+                pass
+        
+        if valor_encontrado:
+            return valor_encontrado
+        else:
+            st.error("❌ No se pudo encontrar el valor numérico asociado")
+            return None
         
     except Exception as e:
         st.error(f"❌ Error buscando valor: {str(e)}")
@@ -413,8 +439,10 @@ def compare_values(valor_powerbi_texto, valor_esperado):
         powerbi_numero = float(powerbi_limpio)
         excel_numero = float(valor_esperado)
         
-        # Comparar
-        coinciden = powerbi_numero == excel_numero
+        # Comparar (con tolerancia para decimales)
+        tolerancia = 0.01
+        coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
+        
         return powerbi_numero, excel_numero, valor_powerbi_texto, coinciden
         
     except Exception as e:
@@ -435,20 +463,20 @@ def extract_powerbi_data(fecha_objetivo):
         # 1. Navegar al reporte con más tiempo de espera
         with st.spinner("🔄 Conectando con Power BI... Esto puede tomar hasta 30 segundos"):
             driver.get(REPORT_URL)
-            time.sleep(15)  # Tiempo generoso para carga inicial
+            time.sleep(20)  # Tiempo generoso para carga inicial de Power BI
         
         # Verificar si la página cargó correctamente
-        if "Power BI" not in driver.title and "powerbi" not in driver.current_url:
-            st.warning("⚠️ La página podría no haber cargado correctamente")
+        current_url = driver.current_url
+        if "powerbi.com" not in current_url:
+            st.warning(f"⚠️ Posible redirección. URL actual: {current_url}")
         
         # 2. Hacer clic en la conciliación específica
         with st.spinner("🔍 Buscando conciliación..."):
             if not click_conciliacion_date(driver, fecha_objetivo):
-                st.error("❌ No se pudo encontrar la conciliación para la fecha especificada")
                 return None
         
         # 3. Esperar a que cargue la selección
-        time.sleep(8)
+        time.sleep(10)
         
         # 4. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         with st.spinner("💰 Extrayendo valor de Power BI..."):
@@ -472,7 +500,10 @@ def extract_powerbi_data(fecha_objetivo):
         return None
     finally:
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
 
 def main():
     st.title("💰 Validador Power BI - Conciliaciones APP GICA")
@@ -567,13 +598,6 @@ def main():
                                 st.write(f"**Power BI (numérico):** {powerbi_numero:,.0f}".replace(",", "."))
                                 st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
                                 st.write(f"**Diferencia:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
-                        
-                        # Mostrar screenshots (si están disponibles)
-                        try:
-                            with st.expander("📸 Ver capturas del proceso"):
-                                st.info("Las capturas de pantalla están deshabilitadas en esta versión para mejor rendimiento")
-                        except:
-                            pass
                                 
                     elif resultados:
                         st.error("❌ Se accedió al reporte pero no se encontró el valor")
@@ -599,7 +623,7 @@ def main():
         - Búsqueda inteligente de valores monetarios
         - Manejo de formato colombiano (puntos para miles)
         - Comparación automática
-        - Capturas del proceso para verificación
+        - Tolerancia para pequeñas diferencias decimales
         """)
 
 if __name__ == "__main__":
