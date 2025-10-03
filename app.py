@@ -2,25 +2,22 @@ import os
 import sys
 
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
-# Desactivar COMPLETAMENTE el file watcher ANTES de cualquier import
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
 os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
 os.environ['STREAMLIT_SERVER_ENABLE_STATIC_SERVING'] = 'true'
 os.environ['STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION'] = 'false'
 
-# Monkey patch AGGRESIVO para evitar problemas de watcher
+# Monkey patch para evitar problemas de watcher
 import streamlit.web.bootstrap
 import streamlit.watcher
 
-# Deshabilitar TODOS los watchers
 def no_op_watch(*args, **kwargs):
     return lambda: None
 
 def no_op_watch_file(*args, **kwargs):
     return
 
-# Reemplazar todas las funciones de watcher
 streamlit.watcher.path_watcher.watch_file = no_op_watch_file
 streamlit.watcher.path_watcher._watch_path = no_op_watch
 streamlit.watcher.event_based_path_watcher.EventBasedPathWatcher.__init__ = lambda *args, **kwargs: None
@@ -29,6 +26,7 @@ streamlit.web.bootstrap._install_config_watchers = lambda *args, **kwargs: None
 # ===== IMPORTS NORMALES =====
 import streamlit as st
 import pandas as pd
+import numpy as np
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -41,9 +39,13 @@ import re
 import tempfile
 
 # Configuración adicional para Streamlit
-st._config.set_option('server.fileWatcherType', 'none')
+st.set_page_config(
+    page_title="Validador Power BI - APP GICA",
+    page_icon="💰",
+    layout="wide"
+)
 
-# Funciones de extracción de Excel (agregar si no existen)
+# Funciones de extracción de Excel
 def extract_excel_values(uploaded_file):
     """Extraer valores de las hojas del Excel"""
     try:
@@ -61,29 +63,41 @@ def extract_excel_values(uploaded_file):
             if hoja in xls.sheet_names:
                 df = pd.read_excel(uploaded_file, sheet_name=hoja)
                 
-                # Buscar valores que contengan "Total" en cualquier columna
+                # Estrategia 1: Buscar por patrones de texto
                 for col in df.columns:
-                    if df[col].dtype in ['object', 'string']:
-                        for idx, valor in enumerate(df[col]):
-                            if isinstance(valor, str) and 'total' in valor.lower():
-                                # Buscar en la misma fila valores numéricos
-                                for col_num in df.columns:
-                                    if pd.api.types.is_numeric_dtype(df[col_num]):
-                                        cell_value = df.iloc[idx][col_num]
-                                        if pd.notna(cell_value) and cell_value != 0:
-                                            valores[hoja] = float(cell_value)
-                                            break
+                    # Buscar celdas que contengan "total"
+                    mask = df[col].astype(str).str.contains('total', case=False, na=False)
+                    if mask.any():
+                        # Buscar en la misma fila un valor numérico
+                        row_idx = mask.idxmax()
+                        for num_col in df.select_dtypes(include=[np.number]).columns:
+                            cell_value = df.iloc[row_idx][num_col]
+                            if pd.notna(cell_value) and cell_value != 0:
+                                valores[hoja] = float(cell_value)
+                                st.info(f"✅ Encontrado en {hoja}: ${cell_value:,.0f}")
+                                break
+                        break
+                
+                # Estrategia 2: Si no se encontró, buscar la última fila numérica
+                if valores[hoja] == 0:
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 0:
+                        last_row = df[numeric_cols].iloc[-1]
+                        for val in last_row:
+                            if pd.notna(val) and val != 0:
+                                valores[hoja] = float(val)
+                                st.info(f"✅ Usando último valor de {hoja}: ${val:,.0f}")
                                 break
         
         total_general = sum(valores.values())
         return valores, total_general
         
     except Exception as e:
-        st.error(f"Error al procesar Excel: {e}")
+        st.error(f"❌ Error al procesar Excel: {str(e)}")
         return {'CHICORAL': 0, 'GUALANDAY': 0, 'COCORA': 0}, 0
 
 def setup_driver():
-    """Configurar ChromeDriver para Selenium - OPTIMIZADO PARA STREAMLIT CLOUD"""
+    """Configurar ChromeDriver para Selenium - SOLUCIÓN PARA VERSIÓN 141"""
     try:
         chrome_options = Options()
         
@@ -93,55 +107,47 @@ def setup_driver():
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
         chrome_options.add_argument("--no-default-browser-check")
         chrome_options.add_argument("--no-first-run")
         chrome_options.add_argument("--disable-default-apps")
         chrome_options.add_argument("--disable-translate")
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--allow-running-insecure-content")
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
         
         # User agent real
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
         
         # Configuraciones experimentales
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_experimental_option("prefs", {
-            "profile.default_content_setting_values.notifications": 2,
-            "profile.default_content_settings.popups": 0,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "safebrowsing.enabled": True
-        })
         
-        # Método OPTIMIZADO para Streamlit Cloud
+        # SOLUCIÓN: Forzar la versión correcta de ChromeDriver
         try:
-            # Usar ChromeDriverManager con configuración específica
-            service = Service(
-                ChromeDriverManager().install(),
-                service_args=['--verbose']
-            )
+            # Método 1: Usar webdriver-manager con versión específica
+            service = Service(ChromeDriverManager(version="141.0.7390.54").install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
+            st.success("✅ ChromeDriver 141.0.7390.54 configurado correctamente")
+            
         except Exception as e:
-            st.warning(f"⚠️ Método alternativo de Chrome: {e}")
-            # Fallback: usar Chrome directamente
-            driver = webdriver.Chrome(options=chrome_options)
+            st.warning(f"⚠️ Método 1 falló: {e}")
+            
+            # Método 2: Usar ChromeDriver del sistema (instalado via packages.txt)
+            try:
+                driver = webdriver.Chrome(options=chrome_options)
+                st.success("✅ ChromeDriver del sistema configurado correctamente")
+                
+            except Exception as e2:
+                st.error(f"❌ Método 2 también falló: {e2}")
+                
+                # Método 3: Usar chromium-browser directamente
+                chrome_options.binary_location = "/usr/bin/chromium"
+                driver = webdriver.Chrome(options=chrome_options)
+                st.success("✅ Chromium browser configurado correctamente")
         
         # Configuraciones adicionales del driver
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
         
         # Configurar timeouts
         driver.set_page_load_timeout(60)
@@ -154,46 +160,91 @@ def setup_driver():
         return None
 
 def extract_powerbi_data(fecha_objetivo):
-    """Extraer datos de Power BI (función de ejemplo)"""
-    # Esta es una función placeholder - implementa tu lógica real aquí
+    """Extraer datos de Power BI - VERSIÓN SIMULADA MEJORADA"""
     try:
-        driver = setup_driver()
-        if not driver:
-            return None
-            
-        # Tu lógica de extracción de Power BI aquí
-        # ...
+        # SIMULACIÓN MEJORADA - Con formato de moneda realista
+        st.info("🔧 Modo simulación activado")
         
-        driver.quit()
-        return {'valor_texto': '$1.000.000'}  # Ejemplo
+        # Simular un retraso de conexión
+        time.sleep(2)
+        
+        # Valor simulado más realista
+        base_value = 1500000
+        variation = (hash(fecha_objetivo) % 500000) - 250000  # ±250,000
+        valor_simulado = base_value + variation
+        
+        # Formato de moneda más realista (como lo mostraría Power BI)
+        valor_formateado = f"${valor_simulado:,.0f}".replace(",", ".")
+        
+        return {
+            'valor_texto': valor_formateado,
+            'valor_numerico': valor_simulado,
+            'fecha': fecha_objetivo,
+            'estado': 'simulado'
+        }
         
     except Exception as e:
-        st.error(f"Error en extracción Power BI: {e}")
+        st.error(f"❌ Error en extracción Power BI: {e}")
         return None
 
-def compare_values(valor_powerbi, valor_excel):
-    """Comparar valores de Power BI y Excel"""
+def convert_currency_to_float(currency_string):
+    """Convierte string de moneda a float - CORREGIDO"""
     try:
-        # Convertir texto a número
-        if isinstance(valor_powerbi, str):
-            # Remover caracteres no numéricos excepto puntos
-            valor_limpio = re.sub(r'[^\d.]', '', valor_powerbi)
-            powerbi_numero = float(valor_limpio) if valor_limpio else 0
+        if isinstance(currency_string, (int, float)):
+            return float(currency_string)
+            
+        if isinstance(currency_string, str):
+            # Remover símbolos de moneda y espacios
+            cleaned = currency_string.replace('$', '').replace(' ', '')
+            
+            # Manejar formato con puntos como separadores de miles
+            if '.' in cleaned and ',' in cleaned:
+                # Formato: 1.000.000,00 -> reemplazar . por nada y , por .
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            elif '.' in cleaned:
+                # Formato: 1.000.000 -> asumir que . son separadores de miles
+                parts = cleaned.split('.')
+                if len(parts) > 1 and len(parts[-1]) == 3:
+                    # Probablemente separadores de miles (1.000.000)
+                    cleaned = cleaned.replace('.', '')
+                else:
+                    # Podría ser decimal (1000.50)
+                    pass
+            elif ',' in cleaned:
+                # Formato: 1,000,000 o 1,000,000.00
+                cleaned = cleaned.replace(',', '')
+            
+            # Convertir a float
+            return float(cleaned) if cleaned else 0.0
+            
+        return float(currency_string)
+        
+    except Exception as e:
+        st.error(f"❌ Error convirtiendo moneda: '{currency_string}' - {e}")
+        return 0.0
+
+def compare_values(valor_powerbi, valor_excel):
+    """Comparar valores de Power BI y Excel - CORREGIDO"""
+    try:
+        # Si es un diccionario (resultado simulado)
+        if isinstance(valor_powerbi, dict):
+            powerbi_numero = valor_powerbi.get('valor_numerico', 0)
+            valor_formateado = valor_powerbi.get('valor_texto', '$0')
         else:
-            powerbi_numero = float(valor_powerbi)
+            # Convertir texto a número usando la nueva función
+            powerbi_numero = convert_currency_to_float(valor_powerbi)
+            valor_formateado = valor_powerbi
             
         excel_numero = float(valor_excel)
         
-        # Formatear para mostrar
-        valor_formateado = f"${powerbi_numero:,.0f}".replace(",", ".")
-        
         # Verificar coincidencia (con tolerancia pequeña por redondeos)
-        coinciden = abs(powerbi_numero - excel_numero) < 1
+        tolerancia = 0.01  # 1 centavo
+        coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
         
         return powerbi_numero, excel_numero, valor_formateado, coinciden
         
     except Exception as e:
-        st.error(f"Error comparando valores: {e}")
+        st.error(f"❌ Error comparando valores: {e}")
         return None, None, "", False
 
 def main():
@@ -209,22 +260,34 @@ def main():
     - Calcular total automáticamente
     - Comparar con Power BI
     
-    **Optimizado para:** Streamlit Cloud
-    **Estado:** ✅ Configuración mejorada para límites del sistema
+    **Estado:** ✅ ChromeDriver 141 Compatible
+    **Modo:** 🔧 Incluye simulación para pruebas
     """)
     
-    # Estado del sistema mejorado
+    # Estado del sistema
     st.sidebar.header("🛠️ Estado del Sistema")
-    st.sidebar.success("✅ Configuración mejorada aplicada")
-    st.sidebar.info("🚀 Watchers deshabilitados - Sin límites de inotify")
+    st.sidebar.success(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}")
+    st.sidebar.info(f"✅ Pandas {pd.__version__}")
     
     # Cargar archivo Excel
     st.subheader("📁 Cargar Archivo Excel")
-    uploaded_file = st.file_uploader("Selecciona el archivo Excel", type=['xlsx', 'xls'])
+    uploaded_file = st.file_uploader(
+        "Selecciona el archivo Excel con hojas CHICORAL, GUALANDAY, COCORA", 
+        type=['xlsx', 'xls']
+    )
     
     if uploaded_file is not None:
+        # Mostrar información del archivo
+        file_details = {
+            "Nombre": uploaded_file.name,
+            "Tipo": uploaded_file.type,
+            "Tamaño": f"{uploaded_file.size / 1024:.1f} KB"
+        }
+        st.json(file_details)
+        
         # Extraer valores del Excel
-        valores, total_general = extract_excel_values(uploaded_file)
+        with st.spinner("🔍 Analizando archivo Excel..."):
+            valores, total_general = extract_excel_values(uploaded_file)
         
         if total_general > 0:
             st.success("✅ Valores extraídos correctamente del Excel!")
@@ -250,11 +313,21 @@ def main():
                 st.metric("TOTAL GENERAL", total_formateado, delta="Valor de Referencia")
             
             # Parámetros de búsqueda en Power BI
-            st.subheader("📅 Parámetros de Búsqueda en Power BI")
-            fecha_conciliacion = st.date_input(
-                "Fecha de Conciliación",
-                value=pd.to_datetime("2025-09-04")
-            )
+            st.subheader("📅 Parámetros de Búsqueda")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fecha_conciliacion = st.date_input(
+                    "Fecha de Conciliación",
+                    value=pd.to_datetime("2025-09-04")
+                )
+            
+            with col2:
+                modo_ejecucion = st.selectbox(
+                    "Modo de Ejecución",
+                    ["Simulación", "Power BI Real"],
+                    help="Simulación: Datos de prueba. Power BI Real: Conexión real al reporte"
+                )
             
             fecha_objetivo = fecha_conciliacion.strftime("%Y-%m-%d")
             
@@ -262,19 +335,28 @@ def main():
             st.markdown("---")
             st.subheader("🚀 Extracción y Validación")
             
-            if st.button("🎯 Extraer Valor de Power BI y Comparar", type="primary", use_container_width=True):
-                with st.spinner("🔄 Iniciando extracción de Power BI... Esto puede tomar 1-2 minutos"):
-                    resultados = extract_powerbi_data(fecha_objetivo)
+            if st.button("🎯 Extraer y Comparar Valores", type="primary", use_container_width=True):
+                with st.spinner("🔄 Procesando..."):
+                    if modo_ejecucion == "Simulación":
+                        resultados = extract_powerbi_data(fecha_objetivo)
+                    else:
+                        # Para implementación real
+                        st.warning("⚠️ Modo Power BI Real - Implementa tu lógica específica")
+                        resultados = extract_powerbi_data(fecha_objetivo)
                     
-                    if resultados and resultados.get('valor_texto'):
-                        valor_powerbi_texto = resultados['valor_texto']
+                    if resultados:
+                        valor_powerbi_texto = resultados.get('valor_texto', 'No encontrado')
                         
                         st.success("✅ Extracción completada!")
+                        
+                        if resultados.get('estado') == 'simulado':
+                            st.info("🔧 **MODO SIMULACIÓN** - Usando datos de prueba")
+                        
                         st.success(f"**Valor en Power BI:** {valor_powerbi_texto}")
                         
                         # Comparar valores
                         powerbi_numero, excel_numero, valor_formateado, coinciden = compare_values(
-                            valor_powerbi_texto, 
+                            resultados, 
                             total_general
                         )
                         
@@ -302,38 +384,38 @@ def main():
                                 st.write(f"**Power BI (numérico):** {powerbi_numero:,.0f}".replace(",", "."))
                                 st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
                                 st.write(f"**Diferencia absoluta:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
-                                st.write(f"**Diferencia relativa:** {abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%")
+                                if excel_numero > 0:
+                                    st.write(f"**Diferencia relativa:** {abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%")
                                 
-                    elif resultados:
-                        st.error("❌ Se accedió al reporte pero no se encontró el valor específico")
                     else:
                         st.error("❌ No se pudieron extraer datos del reporte Power BI")
         else:
-            st.error("❌ No se pudieron extraer valores del archivo Excel. Verifica el formato.")
+            st.error("❌ No se pudieron extraer valores del archivo Excel.")
+            st.info("💡 **Sugerencias:**")
+            st.info("- Verifica que las hojas se llamen CHICORAL, GUALANDAY, COCORA")
+            st.info("- Asegúrate de que haya valores numéricos en las celdas de total")
     
     else:
         st.info("📁 Por favor, carga un archivo Excel para comenzar la validación")
 
-    # Información de ayuda mejorada
+    # Información de ayuda
     st.markdown("---")
-    with st.expander("ℹ️ Instrucciones de Uso - Streamlit Cloud (Configuración Mejorada)"):
+    with st.expander("ℹ️ Instrucciones de Uso"):
         st.markdown("""
-        **Configuración Mejorada para Cloud:**
-        - ✅ **Watchers completamente deshabilitados** - Sin límites de inotify
-        - ✅ **Monkey patch agresivo** para evitar conflictos
-        - ✅ **Selenium optimizado** para entorno serverless
-        - ✅ **Variables de entorno críticas** configuradas
-        
         **Proceso:**
         1. **Cargar Excel**: Archivo con hojas CHICORAL, GUALANDAY, COCORA
-        2. **Extracción automática**: Búsqueda inteligente de "Total" en cada hoja
-        3. **Seleccionar fecha** de conciliación en Power BI  
-        4. **Comparar**: Extrae valor de Power BI y compara con Excel
+        2. **Extracción automática**: Búsqueda inteligente de valores totales
+        3. **Seleccionar fecha** y modo de ejecución
+        4. **Comparar**: Extrae valor y compara con Excel
         
-        **Problemas Solucionados:**
-        - ❌ `OSError: [Errno 24] inotify instance limit reached`
-        - ❌ Límites de file watchers en sistemas compartidos
-        - ❌ Conflictos con watchdog en entornos cloud
+        **Novedades:**
+        - ✅ **ChromeDriver 141** - Compatible con la versión actual
+        - ✅ **Conversión de moneda mejorada** - Maneja formatos con puntos
+        - 🔧 **Múltiples métodos** de configuración de ChromeDriver
+        
+        **Para implementación real de Power BI:**
+        - Reemplaza la función `extract_powerbi_data()` con tu lógica específica
+        - Configura los selectores correctos para tu reporte
         """)
 
 if __name__ == "__main__":
