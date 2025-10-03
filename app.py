@@ -43,7 +43,45 @@ import tempfile
 # Configuración adicional para Streamlit
 st._config.set_option('server.fileWatcherType', 'none')
 
-# Resto de tu código permanece igual...
+# Funciones de extracción de Excel (agregar si no existen)
+def extract_excel_values(uploaded_file):
+    """Extraer valores de las hojas del Excel"""
+    try:
+        valores = {
+            'CHICORAL': 0,
+            'GUALANDAY': 0, 
+            'COCORA': 0
+        }
+        
+        # Leer el archivo Excel
+        xls = pd.ExcelFile(uploaded_file)
+        
+        # Procesar cada hoja
+        for hoja in ['CHICORAL', 'GUALANDAY', 'COCORA']:
+            if hoja in xls.sheet_names:
+                df = pd.read_excel(uploaded_file, sheet_name=hoja)
+                
+                # Buscar valores que contengan "Total" en cualquier columna
+                for col in df.columns:
+                    if df[col].dtype in ['object', 'string']:
+                        for idx, valor in enumerate(df[col]):
+                            if isinstance(valor, str) and 'total' in valor.lower():
+                                # Buscar en la misma fila valores numéricos
+                                for col_num in df.columns:
+                                    if pd.api.types.is_numeric_dtype(df[col_num]):
+                                        cell_value = df.iloc[idx][col_num]
+                                        if pd.notna(cell_value) and cell_value != 0:
+                                            valores[hoja] = float(cell_value)
+                                            break
+                                break
+        
+        total_general = sum(valores.values())
+        return valores, total_general
+        
+    except Exception as e:
+        st.error(f"Error al procesar Excel: {e}")
+        return {'CHICORAL': 0, 'GUALANDAY': 0, 'COCORA': 0}, 0
+
 def setup_driver():
     """Configurar ChromeDriver para Selenium - OPTIMIZADO PARA STREAMLIT CLOUD"""
     try:
@@ -115,7 +153,48 @@ def setup_driver():
         st.error(f"❌ Error crítico al configurar ChromeDriver: {e}")
         return None
 
-# ... (el resto de tus funciones permanecen igual)
+def extract_powerbi_data(fecha_objetivo):
+    """Extraer datos de Power BI (función de ejemplo)"""
+    # Esta es una función placeholder - implementa tu lógica real aquí
+    try:
+        driver = setup_driver()
+        if not driver:
+            return None
+            
+        # Tu lógica de extracción de Power BI aquí
+        # ...
+        
+        driver.quit()
+        return {'valor_texto': '$1.000.000'}  # Ejemplo
+        
+    except Exception as e:
+        st.error(f"Error en extracción Power BI: {e}")
+        return None
+
+def compare_values(valor_powerbi, valor_excel):
+    """Comparar valores de Power BI y Excel"""
+    try:
+        # Convertir texto a número
+        if isinstance(valor_powerbi, str):
+            # Remover caracteres no numéricos excepto puntos
+            valor_limpio = re.sub(r'[^\d.]', '', valor_powerbi)
+            powerbi_numero = float(valor_limpio) if valor_limpio else 0
+        else:
+            powerbi_numero = float(valor_powerbi)
+            
+        excel_numero = float(valor_excel)
+        
+        # Formatear para mostrar
+        valor_formateado = f"${powerbi_numero:,.0f}".replace(",", ".")
+        
+        # Verificar coincidencia (con tolerancia pequeña por redondeos)
+        coinciden = abs(powerbi_numero - excel_numero) < 1
+        
+        return powerbi_numero, excel_numero, valor_formateado, coinciden
+        
+    except Exception as e:
+        st.error(f"Error comparando valores: {e}")
+        return None, None, "", False
 
 def main():
     st.title("💰 Validador Power BI - Conciliaciones APP GICA")
