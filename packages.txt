@@ -1,3 +1,2 @@
-# Dependencias del sistema - mínimo necesario
 chromium
 chromium-driver
