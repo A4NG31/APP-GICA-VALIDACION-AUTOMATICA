@@ -1,5 +1,12 @@
 import streamlit as st
 import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
 import os
@@ -110,40 +117,37 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def setup_driver():
-    """Configurar ChromeDriver usando Selenium Base - VERSIÓN STREAMLIT CLOUD"""
+    """Configurar ChromeDriver para Selenium - VERSIÓN COMPATIBLE LOCAL Y CLOUD"""
     try:
-        # Intentar importar seleniumbase
-        from seleniumbase import Driver
+        chrome_options = Options()
         
-        # Configurar driver con SeleniumBase (maneja ChromeDriver automáticamente)
-        driver = Driver(
-            browser="chrome",
-            headless=True,
-            headless2=True,  # Modo headless mejorado
-            undetectable=True,  # Modo indetectable
-            incognito=True,  # Modo incógnito
-            disable_gpu=True,  # Deshabilitar GPU
-            disable_images=False,  # Permitir imágenes para Power BI
-            block_images=False,  # No bloquear imágenes
-            user_data_dir=None,  # No usar directorio de usuario persistente
-            extension_zip=None,  # Sin extensiones
-            extension_dir=None,  # Sin directorio de extensiones
-            page_load_strategy="normal",  # Estrategia de carga normal
-            use_auto_ext=False,  # No usar extensiones automáticas
-            log_cdp_events=False,  # No registrar eventos CDP
-            no_sandbox=True,  # Sin sandbox para servidores
-            disable_dev_shm=True,  # Deshabilitar shared memory
-            _disable_csp=True,  # Deshabilitar política de seguridad de contenido
-            timeout=45,  # Timeout aumentado
-        )
+        # Opciones esenciales para compatibilidad
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
         
+        # User agent real
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        # Intentar diferentes métodos de inicialización
+        try:
+            # Método 1: Usar webdriver-manager (ideal para local)
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except:
+            # Método 2: Usar Chrome directamente (para Streamlit Cloud)
+            driver = webdriver.Chrome(options=chrome_options)
+        
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
         
-    except ImportError:
-        st.error("❌ SeleniumBase no está instalado. Instálalo con: pip install seleniumbase")
-        return None
     except Exception as e:
-        st.error(f"❌ Error configurando ChromeDriver: {str(e)}")
+        st.error(f"❌ Error al configurar ChromeDriver: {e}")
         return None
 
 def click_conciliacion_date(driver, fecha_objetivo):
