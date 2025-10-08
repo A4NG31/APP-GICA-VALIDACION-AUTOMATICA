@@ -787,18 +787,36 @@ def main():
             
             # Parámetros de búsqueda en Power BI
             st.subheader("📅 Parámetros de Búsqueda")
-            fecha_conciliacion = st.date_input(
-                "Fecha de Conciliación",
-                value=pd.to_datetime("2025-09-04")
-            )
             
-            fecha_objetivo = fecha_conciliacion.strftime("%Y-%m-%d")
+            # Usar la fecha del archivo si está disponible, sino usar fecha por defecto
+            if fecha_desde_archivo:
+                st.success(f"✅ Fecha de Conciliación: **{fecha_desde_archivo.strftime('%Y-%m-%d')}** (tomada del archivo)")
+                fecha_objetivo = fecha_desde_archivo.strftime("%Y-%m-%d")
+            else:
+                fecha_conciliacion = st.date_input(
+                    "Fecha de Conciliación",
+                    value=pd.to_datetime("2025-09-04"),
+                    help="No se pudo detectar la fecha del archivo. Ingresa manualmente."
+                )
+                fecha_objetivo = fecha_conciliacion.strftime("%Y-%m-%d")
             
-            # Botón de extracción
+            # Botón de extracción (solo si NO hay fecha automática) o extracción automática
             st.markdown("---")
             st.subheader("🚀 Extracción y Validación")
             
-            if st.button("🎯 Extraer Valores de Power BI y Comparar", type="primary", use_container_width=True):
+            # Si hay fecha del archivo, ejecutar automáticamente
+            ejecutar_extraccion = False
+            
+            if fecha_desde_archivo:
+                st.info("🤖 Extracción automática activada (fecha detectada en el archivo)")
+                ejecutar_extraccion = True
+            else:
+                # Si no hay fecha del archivo, mostrar botón manual
+                if st.button("🎯 Extraer Valores de Power BI y Comparar", type="primary", use_container_width=True):
+                    ejecutar_extraccion = True
+            
+            # Ejecutar extracción si corresponde
+            if ejecutar_extraccion:
                 with st.spinner("🌐 Extrayendo datos de Power BI... Esto puede tomar 1-2 minutos"):
                     resultados = extract_powerbi_data(fecha_objetivo)
                     
