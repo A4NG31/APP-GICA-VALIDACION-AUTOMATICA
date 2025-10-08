@@ -731,10 +731,9 @@ def main():
     )
     
     if uploaded_file is not None:
-        # Extraer fecha del nombre del archivo
+        # Extraer fecha del nombre del archivo (sin mostrar nada)
         fecha_desde_archivo = None
         try:
-            # Patrón para extraer fecha del formato: "Recaudo electronico- Gopass- 2025-10-06.xlsx"
             import re
             patron_fecha = r'(\d{4})-(\d{2})-(\d{2})'
             match = re.search(patron_fecha, uploaded_file.name)
@@ -742,37 +741,17 @@ def main():
             if match:
                 year, month, day = match.groups()
                 fecha_desde_archivo = pd.to_datetime(f"{year}-{month}-{day}")
-        except Exception as e:
-            st.warning(f"⚠️ Error al extraer fecha del archivo: {e}")
+        except:
+            pass
         
-        # ========== SECCIÓN 1: INFORMACIÓN DEL ARCHIVO ==========
-        with st.container():
-            st.markdown("### 📁 Información del Archivo")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Nombre", uploaded_file.name.split('.')[0][:20] + "...")
-            with col2:
-                st.metric("Tamaño", f"{uploaded_file.size / 1024:.1f} KB")
-            with col3:
-                if fecha_desde_archivo:
-                    st.metric("📅 Fecha", fecha_desde_archivo.strftime('%Y-%m-%d'), delta="Auto-detectada")
-                else:
-                    st.metric("📅 Fecha", "No detectada", delta="Manual")
-            with col4:
-                st.metric("Formato", "Excel", delta="✓")
-        
-        st.markdown("---")
-        
-        # Extraer valores del Excel
-        with st.spinner("🔍 Analizando archivo Excel..."):
+        # Extraer valores del Excel CON SPINNER
+        with st.spinner("📊 Procesando archivo Excel..."):
             valores, total_general = extract_excel_values(uploaded_file)
         
         if total_general > 0:
-            st.success("✅ Valores extraídos correctamente del Excel!")
+            # ========== MOSTRAR SOLO RESUMEN DE VALORES ==========
+            st.markdown("### 📊 Valores Extraídos del Excel")
             
-            # Mostrar resumen
-            st.subheader("📊 Resumen de Valores Encontrados")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -789,37 +768,29 @@ def main():
             
             with col4:
                 total_formateado = f"${total_general:,.0f}".replace(",", ".")
-                st.metric("TOTAL GENERAL", total_formateado, delta="Valor de Referencia")
+                st.metric("TOTAL GENERAL", total_formateado, delta="Excel")
             
-            # Parámetros de búsqueda en Power BI
-            st.subheader("📅 Parámetros de Búsqueda")
+            st.markdown("---")
             
+            # ========== SECCIÓN 3: PARÁMETROS Y EJECUCIÓN ==========
             # Usar la fecha del archivo si está disponible, sino usar fecha por defecto
             if fecha_desde_archivo:
-                st.success(f"✅ Fecha de Conciliación: **{fecha_desde_archivo.strftime('%Y-%m-%d')}** (tomada del archivo)")
+                st.info(f"🤖 **Extracción Automática Activada** | Fecha: {fecha_desde_archivo.strftime('%Y-%m-%d')}")
                 fecha_objetivo = fecha_desde_archivo.strftime("%Y-%m-%d")
+                ejecutar_extraccion = True
             else:
+                st.subheader("📅 Parámetros de Búsqueda")
                 fecha_conciliacion = st.date_input(
                     "Fecha de Conciliación",
                     value=pd.to_datetime("2025-09-04"),
                     help="No se pudo detectar la fecha del archivo. Ingresa manualmente."
                 )
                 fecha_objetivo = fecha_conciliacion.strftime("%Y-%m-%d")
-            
-            # Botón de extracción (solo si NO hay fecha automática) o extracción automática
-            st.markdown("---")
-            st.subheader("🚀 Extracción y Validación")
-            
-            # Si hay fecha del archivo, ejecutar automáticamente
-            ejecutar_extraccion = False
-            
-            if fecha_desde_archivo:
-                st.info("🤖 Extracción automática activada (fecha detectada en el archivo)")
-                ejecutar_extraccion = True
-            else:
-                # Si no hay fecha del archivo, mostrar botón manual
+                
                 if st.button("🎯 Extraer Valores de Power BI y Comparar", type="primary", use_container_width=True):
                     ejecutar_extraccion = True
+                else:
+                    ejecutar_extraccion = False
             
             # Ejecutar extracción si corresponde
             if ejecutar_extraccion:
@@ -830,13 +801,10 @@ def main():
                         valor_powerbi_texto = resultados['valor_texto']
                         valores_peajes_powerbi = resultados.get('valores_peajes', {})
                         
-                        st.success("✅ Extracción completada!")
-                        
-                        # ========== COMPARACIÓN DEL TOTAL GENERAL ==========
                         st.markdown("---")
-                        st.subheader("💰 COMPARACIÓN: VALOR TOTAL A PAGAR A COMERCIO")
                         
-                        st.info(f"**Valor en Power BI:** {valor_powerbi_texto}")
+                        # ========== SECCIÓN 4: RESULTADOS - COMPARACIÓN TOTAL ==========
+                        st.markdown("### 💰 Validación: Total General")
                         
                         # Comparar valores totales
                         powerbi_numero, excel_numero, valor_formateado, coinciden = compare_values(
@@ -845,124 +813,111 @@ def main():
                         )
                         
                         if powerbi_numero is not None and excel_numero is not None:
-                            # Mostrar comparación total
-                            col1, col2, col3 = st.columns(3)
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                            
                             with col1:
-                                st.metric("Power BI (Total)", valor_formateado)
+                                st.metric("📊 Power BI", valor_formateado)
                             with col2:
-                                st.metric("Excel (Total)", total_formateado)
+                                st.metric("📁 Excel", total_formateado)
                             with col3:
                                 if coinciden:
-                                    st.success("✅ COINCIDEN")
+                                    st.markdown("#### ✅")
+                                    st.success("COINCIDE")
                                 else:
                                     diferencia = abs(powerbi_numero - excel_numero)
-                                    diferencia_formateada = f"${diferencia:,.0f}".replace(",", ".")
-                                    st.error("❌ NO COINCIDEN")
-                                    st.metric("Diferencia", diferencia_formateada)
-                            
-                            # Mostrar detalles del total
-                            with st.expander("📊 Detalles de la Comparación Total"):
-                                st.write(f"**Power BI (numérico):** {powerbi_numero:,.0f}".replace(",", "."))
-                                st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
-                                st.write(f"**Diferencia absoluta:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
-                                if excel_numero > 0:
-                                    st.write(f"**Diferencia relativa:** {abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%")
+                                    st.markdown("#### ❌")
+                                    st.error("DIFERENCIA")
+                                    st.caption(f"${diferencia:,.0f}".replace(",", "."))
                         
-                        # ========== NUEVA SECCIÓN: COMPARACIÓN POR PEAJE ==========
                         st.markdown("---")
-                        st.subheader("🏢 COMPARACIÓN: VALORES INDIVIDUALES POR PEAJE")
+                        
+                        # ========== SECCIÓN 5: RESULTADOS - COMPARACIÓN POR PEAJE ==========
+                        st.markdown("### 🏢 Validación: Por Peaje")
                         
                         # Comparar valores por peaje
                         comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores)
                         
-                        # Mostrar comparaciones en columnas
-                        col1, col2, col3 = st.columns(3)
-                        
-                        peajes_columnas = {
-                            'CHICORAL': col1,
-                            'GUALANDAY': col2,
-                            'COCORA': col3
-                        }
-                        
+                        # Crear tabla resumen compacta
+                        tabla_data = []
                         todos_coinciden = True
                         
-                        for peaje, col in peajes_columnas.items():
-                            comparacion = comparaciones_peajes[peaje]
+                        for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
+                            comp = comparaciones_peajes[peaje]
                             
-                            with col:
-                                st.markdown(f"### 📍 {peaje}")
-                                
-                                # Power BI
-                                st.write("**Power BI:**")
-                                st.write(f"{comparacion['powerbi_texto']}")
-                                
-                                # Excel
-                                st.write("**Excel:**")
-                                excel_formateado = f"${comparacion['excel_numero']:,.0f}".replace(",", ".")
-                                st.write(excel_formateado)
-                                
-                                # Estado
-                                if comparacion['coinciden']:
-                                    st.success("✅ COINCIDEN")
-                                else:
-                                    st.error("❌ NO COINCIDEN")
-                                    diferencia_formateada = f"${comparacion['diferencia']:,.0f}".replace(",", ".")
-                                    st.write(f"**Diferencia:** {diferencia_formateada}")
-                                    todos_coinciden = False
+                            estado_icono = "✅" if comp['coinciden'] else "❌"
+                            diferencia_texto = "$0" if comp['coinciden'] else f"${comp['diferencia']:,.0f}".replace(",", ".")
+                            
+                            tabla_data.append({
+                                '': estado_icono,
+                                'Peaje': peaje,
+                                'Power BI': comp['powerbi_texto'],
+                                'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
+                                'Dif.': diferencia_texto
+                            })
+                            
+                            if not comp['coinciden']:
+                                todos_coinciden = False
                         
-                        # Resumen final
+                        df_comparacion = pd.DataFrame(tabla_data)
+                        st.dataframe(df_comparacion, use_container_width=True, hide_index=True)
+                        
                         st.markdown("---")
-                        st.subheader("📋 Resumen General de Validación")
+                        
+                        # ========== SECCIÓN 6: RESUMEN FINAL ==========
+                        st.markdown("### 📋 Resultado Final")
                         
                         if coinciden and todos_coinciden:
-                            st.success("🎉 ¡VALIDACIÓN EXITOSA! Todos los valores coinciden (Total y por Peaje)")
+                            st.success("🎉 **VALIDACIÓN EXITOSA** - Todos los valores coinciden")
                             st.balloons()
                         elif coinciden and not todos_coinciden:
-                            st.warning("⚠️ El TOTAL GENERAL coincide, pero hay diferencias en los valores individuales por peaje")
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - El total coincide, pero hay diferencias por peaje")
                         elif not coinciden and todos_coinciden:
-                            st.warning("⚠️ Los valores por PEAJE coinciden, pero el TOTAL GENERAL tiene diferencias")
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los peajes coinciden, pero el total tiene diferencias")
                         else:
-                            st.error("❌ Se encontraron diferencias tanto en el TOTAL como en los valores por PEAJE")
+                            st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en total y peajes")
                         
-                        # Tabla resumen detallada
-                        with st.expander("📊 Ver Tabla Resumen Detallada"):
+                        # Botón para ver detalles adicionales
+                        with st.expander("🔍 Ver Detalles Completos y Capturas"):
+                            # Tabla detallada
+                            st.markdown("#### 📊 Tabla Detallada")
                             resumen_data = []
                             
-                            # Agregar totales
                             resumen_data.append({
                                 'Concepto': 'TOTAL GENERAL',
                                 'Power BI': f"${powerbi_numero:,.0f}".replace(",", "."),
                                 'Excel': f"${excel_numero:,.0f}".replace(",", "."),
                                 'Estado': '✅ Coincide' if coinciden else '❌ No coincide',
-                                'Diferencia': f"${abs(powerbi_numero - excel_numero):,.0f}".replace(",", ".")
+                                'Diferencia': f"${abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."),
+                                'Dif. %': f"{abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%" if excel_numero > 0 else "N/A"
                             })
                             
-                            # Agregar peajes
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                                 comp = comparaciones_peajes[peaje]
+                                excel_val = comp['excel_numero']
                                 resumen_data.append({
                                     'Concepto': peaje,
                                     'Power BI': comp['powerbi_texto'],
                                     'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
                                     'Estado': '✅ Coincide' if comp['coinciden'] else '❌ No coincide',
-                                    'Diferencia': f"${comp['diferencia']:,.0f}".replace(",", ".")
+                                    'Diferencia': f"${comp['diferencia']:,.0f}".replace(",", "."),
+                                    'Dif. %': f"{comp['diferencia']/excel_val*100:.2f}%" if excel_val > 0 else "N/A"
                                 })
                             
                             df_resumen = pd.DataFrame(resumen_data)
-                            st.dataframe(df_resumen, use_container_width=True)
-                        
-                        # Mostrar screenshots
-                        with st.expander("📸 Ver capturas del proceso"):
+                            st.dataframe(df_resumen, use_container_width=True, hide_index=True)
+                            
+                            # Screenshots
+                            st.markdown("#### 📸 Capturas del Proceso")
                             col1, col2, col3 = st.columns(3)
                             screenshots = resultados.get('screenshots', {})
                             
                             if 'inicial' in screenshots and os.path.exists(screenshots['inicial']):
                                 with col1:
-                                    st.image(screenshots['inicial'], caption="Reporte Inicial", use_column_width=True)
+                                    st.image(screenshots['inicial'], caption="Vista Inicial", use_column_width=True)
                             
                             if 'seleccion' in screenshots and os.path.exists(screenshots['seleccion']):
                                 with col2:
-                                    st.image(screenshots['seleccion'], caption="Después de Selección", use_column_width=True)
+                                    st.image(screenshots['seleccion'], caption="Tras Selección", use_column_width=True)
                             
                             if 'final' in screenshots and os.path.exists(screenshots['final']):
                                 with col3:
@@ -973,11 +928,13 @@ def main():
                     else:
                         st.error("❌ No se pudieron extraer datos del reporte Power BI")
         else:
-            st.error("❌ No se pudieron extraer valores del archivo Excel.")
-            st.info("💡 **Sugerencias:**")
-            st.info("- Verifica que las hojas se llamen CHICORAL, GUALANDAY, COCORA")
-            st.info("- Asegúrate de que haya valores numéricos en las celdas de total")
-            st.info("- Revisa que los totales estén claramente identificados con 'TOTAL'")
+            st.error("❌ No se pudieron extraer valores del archivo Excel")
+            with st.expander("💡 Sugerencias para solucionar el problema"):
+                st.markdown("""
+                - Verifica que las hojas se llamen **CHICORAL**, **GUALANDAY**, **COCORA**
+                - Asegúrate de que haya valores numéricos en las celdas de total
+                - Revisa que los totales estén claramente identificados con **'TOTAL'**
+                """)
     
     else:
         st.info("📁 Por favor, carga un archivo Excel para comenzar la validación")
