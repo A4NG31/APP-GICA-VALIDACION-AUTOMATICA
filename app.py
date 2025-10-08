@@ -1,6 +1,6 @@
 import os
 import sys
- 
+
 
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
@@ -742,21 +742,27 @@ def main():
             if match:
                 year, month, day = match.groups()
                 fecha_desde_archivo = pd.to_datetime(f"{year}-{month}-{day}")
-                st.success(f"📅 Fecha detectada del archivo: {fecha_desde_archivo.strftime('%Y-%m-%d')}")
-            else:
-                st.warning("⚠️ No se pudo detectar la fecha en el nombre del archivo. Formato esperado: 'Recaudo electronico- Gopass- AAAA-MM-DD.xlsx'")
         except Exception as e:
             st.warning(f"⚠️ Error al extraer fecha del archivo: {e}")
         
-        # Mostrar información del archivo
-        file_details = {
-            "Nombre": uploaded_file.name,
-            "Tipo": uploaded_file.type,
-            "Tamaño": f"{uploaded_file.size / 1024:.1f} KB"
-        }
-        if fecha_desde_archivo:
-            file_details["Fecha Detectada"] = fecha_desde_archivo.strftime('%Y-%m-%d')
-        st.json(file_details)
+        # ========== SECCIÓN 1: INFORMACIÓN DEL ARCHIVO ==========
+        with st.container():
+            st.markdown("### 📁 Información del Archivo")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Nombre", uploaded_file.name.split('.')[0][:20] + "...")
+            with col2:
+                st.metric("Tamaño", f"{uploaded_file.size / 1024:.1f} KB")
+            with col3:
+                if fecha_desde_archivo:
+                    st.metric("📅 Fecha", fecha_desde_archivo.strftime('%Y-%m-%d'), delta="Auto-detectada")
+                else:
+                    st.metric("📅 Fecha", "No detectada", delta="Manual")
+            with col4:
+                st.metric("Formato", "Excel", delta="✓")
+        
+        st.markdown("---")
         
         # Extraer valores del Excel
         with st.spinner("🔍 Analizando archivo Excel..."):
