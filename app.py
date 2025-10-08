@@ -156,7 +156,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ===== FUNCIONES DE EXTRACCIÓN DE POWER BI (DEL CÓDIGO QUE FUNCIONA) =====
+# ===== FUNCIONES DE EXTRACCIÓN DE POWER BI (ACTUALIZADAS) =====
 
 def setup_driver():
     """Configurar ChromeDriver para Selenium - VERSIÓN COMPATIBLE"""
@@ -301,120 +301,113 @@ def find_valor_a_pagar_comercio_card(driver):
         st.error(f"❌ Error buscando valor: {str(e)}")
         return None
 
-# ----------------------------
-# Nuevas funciones: extraer tabla "RESUMEN COMERCIOS"
-# ----------------------------
-
-def _clean_to_float(s):
-    """Limpia un string tipo $30.434.400 y devuelve float. Devuelve None si no puede."""
-    try:
-        if s is None:
-            return None
-        t = str(s).strip()
-        if t == "":
-            return None
-        # quitar signos y letras
-        t = re.sub(r'[^\d,.\-]', '', t)
-        # quitar guiones
-        t = t.replace('-', '')
-        # casos: "30.434.400" -> remover puntos (miles)
-        # si contiene '.' y ',' y la parte tras la coma tiene 2 dígitos => coma decimal
-        if t.count('.') > 1 and t.count(',') == 0:
-            t = t.replace('.', '')
-        if '.' in t and ',' in t:
-            parts = t.split(',')
-            if len(parts[-1]) == 2:
-                t = ''.join(parts[:-1]).replace('.', '') + '.' + parts[-1]
-            else:
-                t = t.replace('.', '').replace(',', '')
-        elif t.count('.') > 1:
-            t = t.replace('.', '')
-        elif t.count(',') == 1 and len(t.split(',')[-1]) == 2:
-            t = t.replace(',', '.')
-        # quitar comas residuales
-        t = t.replace(',', '')
-        if t == "":
-            return None
-        return float(t)
-    except:
-        return None
-
-def extract_resumen_comercios_table(driver, timeout=15):
+def find_peaje_values(driver):
     """
-    Localiza la tabla 'RESUMEN COMERCIOS' y extrae los valores de la columna 'Valor A Pagar'
-    para cada peaje: 'PEAJE CHICORAL', 'PEAJE COCORA', 'PEAJE GUALANDAY'.
-    Estrategia:
-      - esperar que la tabla aparezca (espera por texto 'RESUMEN COMERCIOS' o por una fila con 'PEAJE CHICORAL')
-      - para cada fila objetivo, tomar la celda de 'Valor A Pagar' si existe; sino tomar el mayor número de la fila.
+    NUEVA FUNCIÓN: Buscar valores individuales de cada peaje en el Power BI
+    Busca las tarjetas/tablas de CHICORAL, COCORA y GUALANDAY
     """
-    targets = {
-        'CHICORAL': 'PEAJE CHICORAL',
-        'COCORA': 'PEAJE COCORA',
-        'GUALANDAY': 'PEAJE GUALANDAY'
-    }
-    resultados = {k: None for k in targets.keys()}
-    try:
-        # esperar por la tabla (por el texto 'RESUMEN COMERCIOS' o por alguna fila con 'PEAJE CHICORAL')
-        end_time = time.time() + timeout
-        found = False
-        while time.time() < end_time:
+    peajes = {}
+    nombres_peajes = ['CHICORAL', 'COCORA', 'GUALANDAY']
+    
+    for nombre_peaje in nombres_peajes:
+        try:
+            # Buscar el título del peaje
+            titulo_selectors = [
+                f"//*[contains(text(), '{nombre_peaje}')]",
+                f"//*[contains(text(), '{nombre_peaje.title()}')]",
+                f"//*[contains(text(), '{nombre_peaje.lower()}')]",
+            ]
+            
+            titulo_element = None
+            for selector in titulo_selectors:
+                try:
+                    elementos = driver.find_elements(By.XPATH, selector)
+                    for elemento in elementos:
+                        if elemento.is_displayed():
+                            texto = elemento.text.strip().upper()
+                            if nombre_peaje in texto and 'VALOR' not in texto:
+                                titulo_element = elemento
+                                break
+                    if titulo_element:
+                        break
+                except:
+                    continue
+            
+            if not titulo_element:
+                st.warning(f"⚠️ No se encontró el título '{nombre_peaje}' en el reporte")
+                peajes[nombre_peaje] = None
+                continue
+            
+            # Estrategia 1: Buscar "VALOR A PAGAR" cerca del título del peaje
             try:
-                # buscar filas que contengan 'PEAJE CHICORAL' u otros
-                any_row = driver.find_elements(By.XPATH, "//*[contains(translate(normalize-space(text()), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'PEAJE CHICORAL') or contains(translate(normalize-space(text()), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'RESUMEN COMERCIOS')]")
-                if any_row and len(any_row) > 0:
-                    found = True
-                    break
+                # Buscar en el contenedor padre
+                container = titulo_element.find_element(By.XPATH, "./ancestor::*[position()<=3]")
+                
+                # Buscar "VALOR A PAGAR" dentro del contenedor
+                valor_pagar_elements = container.find_elements(By.XPATH, ".//*[contains(text(), 'VALOR A PAGAR') or contains(text(), 'Valor a pagar')]")
+                
+                if valor_pagar_elements:
+                    # Buscar el valor numérico cerca de "VALOR A PAGAR"
+                    valor_element = valor_pagar_elements[0]
+                    
+                    # Buscar valores numéricos en el mismo contenedor
+                    numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), '$')]")
+                    
+                    for elem in numeric_elements:
+                        texto = elem.text.strip()
+                        if texto and any(char.isdigit() for char in texto) and '$' in texto:
+                            # Verificar que no sea el título
+                            if 'VALOR A PAGAR' not in texto.upper() and 'COMERCIO' not in texto.upper():
+                                peajes[nombre_peaje] = texto
+                                break
             except:
                 pass
-            time.sleep(0.5)
-        if not found:
-            return resultados  # no encontrada
-        
-        # Ahora para cada peaje buscar su fila y extraer valor
-        for key, label in targets.items():
-            try:
-                # buscar nodos que contengan el texto del peaje (en mayúsculas/minúsculas)
-                nodes = driver.find_elements(By.XPATH, f"//*[contains(translate(normalize-space(text()), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '{label.upper()}')]")
-                value_found = None
-                for n in nodes:
-                    # intentar localizar fila contenedora (tr) o ancestro con role row
-                    row = None
-                    try:
-                        row = n.find_element(By.XPATH, "./ancestor::tr[1]")
-                    except:
-                        try:
-                            row = n.find_element(By.XPATH, "./ancestor::*[@role='row'][1]")
-                        except:
-                            try:
-                                row = n.find_element(By.XPATH, "./..")
-                            except:
-                                row = None
-                    # si tenemos fila, primero intentar ubicar columna 'Valor A Pagar' en esa fila
-                    if row is not None:
-                        # buscar elementos en la fila que parezcan encabezados (rare) o elementos con formato moneda
-                        cells = row.find_elements(By.XPATH, ".//*")
-                        nums = []
-                        for c in cells:
-                            txt = c.text.strip()
-                            num = _clean_to_float(txt)
-                            if num is not None:
-                                nums.append(num)
-                        # si hay números en la fila, normalmente el mayor es 'Valor A Pagar' (millones)
-                        if nums:
-                            candidate = max(nums)
-                            value_found = candidate
-                            break
-                resultados[key] = float(value_found) if value_found is not None else None
-            except:
-                resultados[key] = None
-        return resultados
-    except Exception as e:
-        return resultados
-
-# ===== MODIFICACIÓN: extract_powerbi_data ahora extrae tabla RESUMEN COMERCIOS =====
+            
+            # Estrategia 2: Buscar valores numéricos después del título
+            if nombre_peaje not in peajes or peajes[nombre_peaje] is None:
+                try:
+                    following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{nombre_peaje}')]/following::*")
+                    
+                    for elem in following_elements[:15]:
+                        texto = elem.text.strip()
+                        if texto and any(char.isdigit() for char in texto) and '$' in texto:
+                            # Verificar que sea un valor monetario válido
+                            if len(texto) > 5 and len(texto) < 50:
+                                peajes[nombre_peaje] = texto
+                                break
+                except:
+                    pass
+            
+            # Estrategia 3: Buscar en elementos hermanos
+            if nombre_peaje not in peajes or peajes[nombre_peaje] is None:
+                try:
+                    parent = titulo_element.find_element(By.XPATH, "./..")
+                    siblings = parent.find_elements(By.XPATH, "./*")
+                    
+                    for sibling in siblings:
+                        if sibling != titulo_element:
+                            texto = sibling.text.strip()
+                            if texto and any(char.isdigit() for char in texto) and '$' in texto:
+                                if len(texto) > 5 and len(texto) < 50:
+                                    peajes[nombre_peaje] = texto
+                                    break
+                except:
+                    pass
+            
+            if nombre_peaje not in peajes or peajes[nombre_peaje] is None:
+                st.warning(f"⚠️ No se pudo encontrar el valor para {nombre_peaje}")
+                peajes[nombre_peaje] = None
+            else:
+                st.info(f"✅ {nombre_peaje}: {peajes[nombre_peaje]}")
+                
+        except Exception as e:
+            st.error(f"❌ Error buscando valor de {nombre_peaje}: {str(e)}")
+            peajes[nombre_peaje] = None
+    
+    return peajes
 
 def extract_powerbi_data(fecha_objetivo):
-    """Función principal para extraer datos de Power BI - VERSIÓN QUE FUNCIONA"""
+    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES"""
     
     REPORT_URL = "https://app.powerbi.com/view?r=eyJrIjoiYTFmOWZkMDAtY2IwYi00OTg4LWIxZDctNGZmYmU0NTMxNGI1IiwidCI6ImY5MTdlZDFiLWI0MDMtNDljNS1iODBiLWJhYWUzY2UwMzc1YSJ9"
     
@@ -426,32 +419,32 @@ def extract_powerbi_data(fecha_objetivo):
         # 1. Navegar al reporte
         with st.spinner("🌐 Conectando con Power BI..."):
             driver.get(REPORT_URL)
-            time.sleep(8)
+            time.sleep(10)
         
         # 2. Tomar screenshot inicial
         driver.save_screenshot("powerbi_inicial.png")
         
         # 3. Hacer clic en la conciliación específica
         if not click_conciliacion_date(driver, fecha_objetivo):
-            driver.quit()
             return None
         
-        # 4. Esperar a que cargue la selección (la tabla aparece después)
+        # 4. Esperar a que cargue la selección
         time.sleep(3)
         driver.save_screenshot("powerbi_despues_seleccion.png")
         
-        # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor TOTAL
+        # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. Extraer valores por peaje desde la tabla 'RESUMEN COMERCIOS'
-        peajes = extract_resumen_comercios_table(driver, timeout=15)
+        # 6. NUEVA FUNCIONALIDAD: Extraer valores por peaje
+        st.info("🔍 Buscando valores individuales por peaje...")
+        valores_peajes = find_peaje_values(driver)
         
         # 7. Tomar screenshot final
         driver.save_screenshot("powerbi_final.png")
         
         return {
             'valor_texto': valor_texto,
-            'peajes': peajes,
+            'valores_peajes': valores_peajes,  # NUEVO: Valores por peaje
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
                 'seleccion': 'powerbi_despues_seleccion.png',
@@ -463,12 +456,9 @@ def extract_powerbi_data(fecha_objetivo):
         st.error(f"❌ Error durante la extracción: {str(e)}")
         return None
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        driver.quit()
 
-# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MEJORADAS) =====
+# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
 
 def extract_excel_values(uploaded_file):
     """Extraer valores de las 3 hojas del Excel - VERSIÓN MEJORADA"""
@@ -591,7 +581,7 @@ def extract_excel_values(uploaded_file):
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, 0
 
-# ===== FUNCIONES DE COMPARACIÓN (MEJORADAS) =====
+# ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS) =====
 
 def convert_currency_to_float(currency_string):
     """Convierte string de moneda a float - OPTIMIZADO"""
@@ -658,6 +648,56 @@ def compare_values(valor_powerbi, valor_excel):
         st.error(f"❌ Error comparando valores: {e}")
         return None, None, str(valor_powerbi), False
 
+def compare_peajes(valores_powerbi_peajes, valores_excel):
+    """
+    NUEVA FUNCIÓN: Comparar valores individuales por peaje
+    """
+    comparaciones = {}
+    
+    for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+        try:
+            # Valor de Power BI
+            valor_powerbi_texto = valores_powerbi_peajes.get(peaje)
+            
+            if valor_powerbi_texto is None:
+                comparaciones[peaje] = {
+                    'powerbi_texto': 'No encontrado',
+                    'powerbi_numero': 0,
+                    'excel_numero': valores_excel.get(peaje, 0),
+                    'coinciden': False,
+                    'diferencia': valores_excel.get(peaje, 0)
+                }
+                continue
+            
+            # Convertir valores
+            powerbi_numero = convert_currency_to_float(valor_powerbi_texto)
+            excel_numero = valores_excel.get(peaje, 0)
+            
+            # Comparar con tolerancia
+            tolerancia = 0.01
+            coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
+            diferencia = abs(powerbi_numero - excel_numero)
+            
+            comparaciones[peaje] = {
+                'powerbi_texto': valor_powerbi_texto,
+                'powerbi_numero': powerbi_numero,
+                'excel_numero': excel_numero,
+                'coinciden': coinciden,
+                'diferencia': diferencia
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error comparando {peaje}: {e}")
+            comparaciones[peaje] = {
+                'powerbi_texto': 'Error',
+                'powerbi_numero': 0,
+                'excel_numero': valores_excel.get(peaje, 0),
+                'coinciden': False,
+                'diferencia': 0
+            }
+    
+    return comparaciones
+
 # ===== INTERFAZ PRINCIPAL =====
 
 def main():
@@ -671,10 +711,10 @@ def main():
     - Cargar archivo Excel con 3 hojas
     - Extraer valores de CHICORAL, GUALANDAY, COCORA
     - Calcular total automáticamente
-    - Comparar con Power BI
+    - Comparar con Power BI (Total y por Peaje)
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** Power BI Extraction Funcional
+    **Versión:** v2.0 - Con Comparación por Peaje
     """)
     
     # Estado del sistema
@@ -739,94 +779,136 @@ def main():
             st.markdown("---")
             st.subheader("🚀 Extracción y Validación")
             
-            if st.button("🎯 Extraer Valor de Power BI y Comparar", type="primary", use_container_width=True):
+            if st.button("🎯 Extraer Valores de Power BI y Comparar", type="primary", use_container_width=True):
                 with st.spinner("🌐 Extrayendo datos de Power BI... Esto puede tomar 1-2 minutos"):
                     resultados = extract_powerbi_data(fecha_objetivo)
                     
                     if resultados and resultados.get('valor_texto'):
                         valor_powerbi_texto = resultados['valor_texto']
-                        peajes_powerbi = resultados.get('peajes', {})
+                        valores_peajes_powerbi = resultados.get('valores_peajes', {})
                         
                         st.success("✅ Extracción completada!")
-                        st.success(f"**Valor en Power BI:** {valor_powerbi_texto}")
                         
-                        # Comparar valores (TOTAL)
+                        # ========== COMPARACIÓN DEL TOTAL GENERAL ==========
+                        st.markdown("---")
+                        st.subheader("💰 COMPARACIÓN: VALOR TOTAL A PAGAR A COMERCIO")
+                        
+                        st.info(f"**Valor en Power BI:** {valor_powerbi_texto}")
+                        
+                        # Comparar valores totales
                         powerbi_numero, excel_numero, valor_formateado, coinciden = compare_values(
                             resultados, 
                             total_general
                         )
                         
                         if powerbi_numero is not None and excel_numero is not None:
-                            # Mostrar comparación
-                            st.subheader("🔍 Resultado de la Validación (TOTAL)")
-                            
+                            # Mostrar comparación total
                             col1, col2, col3 = st.columns(3)
                             with col1:
-                                st.metric("Power BI", valor_formateado)
+                                st.metric("Power BI (Total)", valor_formateado)
                             with col2:
-                                st.metric("Excel", total_formateado)
-                            with col3:
-                                pass
+                                st.metric("Excel (Total)", total_formateado)
                             with col3:
                                 if coinciden:
                                     st.success("✅ COINCIDEN")
-                                    st.balloons()
                                 else:
                                     diferencia = abs(powerbi_numero - excel_numero)
                                     diferencia_formateada = f"${diferencia:,.0f}".replace(",", ".")
                                     st.error("❌ NO COINCIDEN")
                                     st.metric("Diferencia", diferencia_formateada)
                             
-                            # Detalles total
-                            with st.expander("📊 Detalles de la Comparación"):
-                                try:
-                                    st.write(f"**Power BI (numérico):** {powerbi_numero:,.0f}".replace(",", "."))
-                                    st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
-                                    st.write(f"**Diferencia absoluta:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
-                                    if excel_numero > 0:
-                                        st.write(f"**Diferencia relativa:** {abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%")
-                                except:
-                                    pass
+                            # Mostrar detalles del total
+                            with st.expander("📊 Detalles de la Comparación Total"):
+                                st.write(f"**Power BI (numérico):** {powerbi_numero:,.0f}".replace(",", "."))
+                                st.write(f"**Excel (numérico):** {excel_numero:,.0f}".replace(",", "."))
+                                st.write(f"**Diferencia absoluta:** {abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."))
+                                if excel_numero > 0:
+                                    st.write(f"**Diferencia relativa:** {abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%")
                         
-                        # ===== NUEVO: Comparación POR PEAJE =====
-                        st.subheader("🔎 RESULTADOS POR PEAJE")
-                        resumen_peajes = []
-                        for key in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-                            excel_val = valores.get(key, 0) or 0
-                            pb_val = peajes_powerbi.get(key)
-                            if pb_val is None:
-                                st.warning(f"{key}: ⚠️ No encontrado en Power BI")
-                                resumen_peajes.append((key, False, None))
-                                continue
-                            # comparar como enteros redondeados
-                            try:
-                                excel_int = int(round(float(excel_val)))
-                            except:
-                                excel_int = 0
-                            try:
-                                pb_int = int(round(float(pb_val)))
-                            except:
-                                pb_int = None
-                            if pb_int is None:
-                                st.warning(f"{key}: ⚠️ Valor inválido en Power BI")
-                                resumen_peajes.append((key, False, None))
-                                continue
-                            if excel_int == pb_int:
-                                st.success(f"{key}: ✅ coincide")
-                                resumen_peajes.append((key, True, 0))
-                            else:
-                                diff = abs(pb_int - excel_int)
-                                st.error(f"{key}: ❌ no coincide → diferencia ${diff:,.0f}".replace(",", "."))
-                                resumen_peajes.append((key, False, diff))
+                        # ========== NUEVA SECCIÓN: COMPARACIÓN POR PEAJE ==========
+                        st.markdown("---")
+                        st.subheader("🏢 COMPARACIÓN: VALORES INDIVIDUALES POR PEAJE")
+                        
+                        # Comparar valores por peaje
+                        comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores)
+                        
+                        # Mostrar comparaciones en columnas
+                        col1, col2, col3 = st.columns(3)
+                        
+                        peajes_columnas = {
+                            'CHICORAL': col1,
+                            'GUALANDAY': col2,
+                            'COCORA': col3
+                        }
+                        
+                        todos_coinciden = True
+                        
+                        for peaje, col in peajes_columnas.items():
+                            comparacion = comparaciones_peajes[peaje]
+                            
+                            with col:
+                                st.markdown(f"### 📍 {peaje}")
+                                
+                                # Power BI
+                                st.write("**Power BI:**")
+                                st.write(f"{comparacion['powerbi_texto']}")
+                                
+                                # Excel
+                                st.write("**Excel:**")
+                                excel_formateado = f"${comparacion['excel_numero']:,.0f}".replace(",", ".")
+                                st.write(excel_formateado)
+                                
+                                # Estado
+                                if comparacion['coinciden']:
+                                    st.success("✅ COINCIDEN")
+                                else:
+                                    st.error("❌ NO COINCIDEN")
+                                    diferencia_formateada = f"${comparacion['diferencia']:,.0f}".replace(",", ".")
+                                    st.write(f"**Diferencia:** {diferencia_formateada}")
+                                    todos_coinciden = False
                         
                         # Resumen final
-                        all_peajes_ok = all(item[1] for item in resumen_peajes if item[1] is not None)
-                        if all_peajes_ok and coinciden:
-                            st.success("✅ TODOS los peajes coinciden con Power BI y TOTAL GENERAL coincide")
-                        else:
-                            st.info("ℹ️ Revisa los peajes marcados con ❌ o ⚠️.")
+                        st.markdown("---")
+                        st.subheader("📋 Resumen General de Validación")
                         
-                        # Mostrar capturas
+                        if coinciden and todos_coinciden:
+                            st.success("🎉 ¡VALIDACIÓN EXITOSA! Todos los valores coinciden (Total y por Peaje)")
+                            st.balloons()
+                        elif coinciden and not todos_coinciden:
+                            st.warning("⚠️ El TOTAL GENERAL coincide, pero hay diferencias en los valores individuales por peaje")
+                        elif not coinciden and todos_coinciden:
+                            st.warning("⚠️ Los valores por PEAJE coinciden, pero el TOTAL GENERAL tiene diferencias")
+                        else:
+                            st.error("❌ Se encontraron diferencias tanto en el TOTAL como en los valores por PEAJE")
+                        
+                        # Tabla resumen detallada
+                        with st.expander("📊 Ver Tabla Resumen Detallada"):
+                            resumen_data = []
+                            
+                            # Agregar totales
+                            resumen_data.append({
+                                'Concepto': 'TOTAL GENERAL',
+                                'Power BI': f"${powerbi_numero:,.0f}".replace(",", "."),
+                                'Excel': f"${excel_numero:,.0f}".replace(",", "."),
+                                'Estado': '✅ Coincide' if coinciden else '❌ No coincide',
+                                'Diferencia': f"${abs(powerbi_numero - excel_numero):,.0f}".replace(",", ".")
+                            })
+                            
+                            # Agregar peajes
+                            for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
+                                comp = comparaciones_peajes[peaje]
+                                resumen_data.append({
+                                    'Concepto': peaje,
+                                    'Power BI': comp['powerbi_texto'],
+                                    'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
+                                    'Estado': '✅ Coincide' if comp['coinciden'] else '❌ No coincide',
+                                    'Diferencia': f"${comp['diferencia']:,.0f}".replace(",", ".")
+                                })
+                            
+                            df_resumen = pd.DataFrame(resumen_data)
+                            st.dataframe(df_resumen, use_container_width=True)
+                        
+                        # Mostrar screenshots
                         with st.expander("📸 Ver capturas del proceso"):
                             col1, col2, col3 = st.columns(3)
                             screenshots = resultados.get('screenshots', {})
@@ -865,16 +947,30 @@ def main():
         1. **Cargar Excel**: Archivo con hojas CHICORAL, GUALANDAY, COCORA
         2. **Extracción automática**: Búsqueda inteligente de "Total" en cada hoja
         3. **Seleccionar fecha** de conciliación en Power BI  
-        4. **Comparar**: Extrae valor de Power BI (TOTAL + PEAJES) y compara con Excel
+        4. **Comparar**: Extrae valores de Power BI y compara con Excel
+        
+        **Características NUEVAS (v2.0):**
+        - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
+        - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
+        - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
+        - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
+        
+        **Características Mantenidas:**
+        - ✅ **Power BI Funcional**: Usa la extracción probada que funciona
+        - ✅ **Búsqueda inteligente**: Múltiples estrategias para encontrar valores
+        - ✅ **Conversión de moneda**: Maneja formatos colombianos e internacionales
+        - 📸 **Capturas del proceso**: Para verificación y debugging
         
         **Notas:**
-        - El script espera que la tabla "RESUMEN COMERCIOS" aparezca después de seleccionar la fecha.
-        - Se busca explícitamente PEAJE CHICORAL, PEAJE COCORA y PEAJE GUALANDAY en esa tabla.
+        - La extracción busca el total y los valores individuales por peaje
+        - Los valores deben estar claramente identificados en el Power BI
+        - Las fechas deben coincidir exactamente con las del reporte Power BI
         """)
+
 if __name__ == "__main__":
     main()
 
     
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.0</div>', unsafe_allow_html=True)
