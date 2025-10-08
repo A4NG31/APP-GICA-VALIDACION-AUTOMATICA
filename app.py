@@ -40,6 +40,7 @@ import re
 import tempfile
 import math
 import traceback
+import os
 
 # Configuración adicional para Streamlit
 st.set_page_config(
@@ -315,29 +316,26 @@ def _extract_numeric_from_text(text):
             return None
         # eliminar cualquier texto no numérico salvo . , -
         s = re.sub(r'[^\d\.,\-]', '', s)
-        # si formato colombiano "30.434.400" -> quitar puntos
-        # si hay comas de decimales manejarlas
-        # Primera: si hay más de 1 punto probablemente son separadores de miles
+        # manejar signos negativos
+        s = s.replace('-', '')
+        # Si tiene punto como separador de miles varias veces -> quitar puntos
         if s.count('.') > 1 and s.count(',') == 0:
             s = s.replace('.', '')
         # Si tiene puntos y comas y la coma parece decimal (2 dígitos), convertir a punto decimal
         if '.' in s and ',' in s:
             parts = s.split(',')
             if len(parts[-1]) == 2:
-                # remover puntos de miles y convertir coma decimal
                 s = ''.join(parts[:-1]).replace('.', '') + '.' + parts[-1]
             else:
                 s = s.replace('.', '').replace(',', '')
-        # Si sólo tiene puntos y parecen separadores de miles
+        # Si sólo tiene puntos repetidos -> quitar puntos (separadores miles)
         elif s.count('.') > 1:
             s = s.replace('.', '')
-        # Si sólo tiene comas y la última parte es decimal de 2 dígitos
+        # Si sólo tiene una coma y la parte decimal es de 2 dígitos -> cambiar coma por punto
         elif s.count(',') == 1 and len(s.split(',')[-1]) == 2:
             s = s.replace(',', '.')
-        # finalmente quitar cualquier coma residual
+        # quitar comas residuales
         s = s.replace(',', '')
-        # quitar guiones
-        s = s.replace('-', '')
         if s == "":
             return None
         return float(s)
@@ -348,87 +346,117 @@ def find_resumen_comercios_values(driver):
     """
     Buscar en la página la tabla 'RESUMEN COMERCIOS' y extraer los valores de la columna 'Valor A Pagar'
     para PEAJE CHICORAL, PEAJE COCORA y PEAJE GUALANDAY.
+    Estrategia:
+      1) Intentar localizar la cabecera "Valor A Pagar" y usar el índice de columna para leer la celda correspondiente en la fila.
+      2) Si falla, tomar todos los números en la fila y elegir el mayor (el total usualmente es el número más grande).
     """
     resultados = {"CHICORAL": None, "COCORA": None, "GUALANDAY": None}
     try:
-        # esperar a que la tabla renderice
         time.sleep(1)
-        # nombres exactos según confirmaste
         targets = {
             "CHICORAL": "PEAJE CHICORAL",
             "COCORA": "PEAJE COCORA",
             "GUALANDAY": "PEAJE GUALANDAY"
         }
         
+        # 1) intentar localizar header "Valor A Pagar" para obtener índice de columna
+        col_index = None
+        header_candidates = driver.find_elements(By.XPATH, "//*[contains(translate(normalize-space(text()), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'VALOR A PAGAR')]")
+        for h in header_candidates:
+            try:
+                # calcular índice relativo dentro del padre
+                # contar elementos precedentes en el mismo padre
+                prev = h.find_elements(By.XPATH, "./preceding-sibling::*")
+                col_index = len(prev) + 1
+                # si este header está dentro de una fila, lo usaremos
+                break
+            except:
+                col_index = None
+                continue
+        
+        # Para cada peaje, buscar su elemento y extraer según la estrategia
         for key, label in targets.items():
             found_val = None
-            # Estrategia A: buscar elemento que contenga exactamente el texto del peaje
+            # buscar elementos que contengan exactamente el texto del peaje
             try:
-                # buscar elementos que contengan el texto (case-insensitive via translate)
-                elems = driver.find_elements(By.XPATH, f"//*[contains(translate(text(), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '{label.upper()}')]")
-                for el in elems:
+                elems = driver.find_elements(By.XPATH, f"//*[contains(translate(normalize-space(text()), 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '{label.upper()}')]")
+            except:
+                elems = []
+            
+            for el in elems:
+                if found_val is not None:
+                    break
+                # intentar localizar la "fila" que contiene ese texto
+                row = None
+                try:
+                    row = el.find_element(By.XPATH, "./ancestor::tr[1]")
+                except:
                     try:
-                        # intentar encontrar la fila (ancestor tr) y leer celdas en la fila
-                        row = el.find_element(By.XPATH, "./ancestor::tr[1]")
-                        # buscar en la fila la celda que tenga '$' o números (valor)
-                        candidates = row.find_elements(By.XPATH, ".//*[contains(text(),'$') or contains(text(),'.') or contains(text(),',') or string-length(normalize-space(text()))>3]")
-                        best = None
-                        for c in candidates:
-                            txt = c.text.strip()
-                            num = _extract_numeric_from_text(txt)
-                            if num is not None and num > 0:
-                                best = num
-                                break
-                        if best:
-                            found_val = best
+                        row = el.find_element(By.XPATH, "./ancestor::*[@role='row'][1]")
+                    except:
+                        # fallback: usar el padre directo
+                        try:
+                            row = el.find_element(By.XPATH, "./..")
+                        except:
+                            row = None
+                
+                # si tenemos índice de columna y una fila, intentar leer exactamente esa celda
+                if col_index and row is not None:
+                    try:
+                        # intentar seleccionar el hijo en la posición col_index
+                        cell = row.find_element(By.XPATH, f"./*[position()={col_index}]")
+                        num = _extract_numeric_from_text(cell.text)
+                        if num is not None and num > 0:
+                            found_val = num
                             break
                     except:
-                        # si no tiene row, intentar siblings
+                        # si falla, continuamos con fallback
+                        pass
+                
+                # fallback: escoger el mayor número dentro de la fila
+                try:
+                    candidates = row.find_elements(By.XPATH, ".//*") if row is not None else el.find_elements(By.XPATH, "following::*[position()<=6]")
+                    nums = []
+                    for c in candidates:
                         try:
-                            parent = el.find_element(By.XPATH, "./..")
-                            candidates = parent.find_elements(By.XPATH, ".//*[contains(text(),'$') or contains(text(),'.') or contains(text(),',')]")
-                            for c in candidates:
-                                num = _extract_numeric_from_text(c.text)
-                                if num is not None and num > 0:
-                                    found_val = num
-                                    break
-                            if found_val:
+                            txt = c.text.strip()
+                            n = _extract_numeric_from_text(txt)
+                            if n is not None and n > 0:
+                                nums.append(n)
+                        except:
+                            continue
+                    if nums:
+                        # elegir el más grande (es el Valor A Pagar en la mayoría de casos)
+                        found_val = max(nums)
+                        break
+                except:
+                    continue
+            
+            # Si no se encontró con los elementos, intentar búsqueda alternativa: buscar el texto y mirar elementos following
+            if found_val is None:
+                try:
+                    nodes = driver.find_elements(By.XPATH, f"//*/text()[contains(translate(., 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '{label.upper()}')]/..")
+                    for n in nodes:
+                        try:
+                            following = n.find_elements(By.XPATH, "following::*[contains(text(),'$') or contains(text(),'.') or contains(text(),',')]")
+                            nums = []
+                            for f in following[:8]:
+                                v = _extract_numeric_from_text(f.text)
+                                if v is not None and v > 0:
+                                    nums.append(v)
+                            if nums:
+                                found_val = max(nums)
                                 break
                         except:
                             continue
-                if found_val:
-                    resultados[key] = found_val
-                    continue
-            except:
-                pass
+                except:
+                    pass
             
-            # Estrategia B: buscar texto y tomar elementos siguientes
-            try:
-                nodes = driver.find_elements(By.XPATH, f"//*/text()[contains(translate(., 'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ'), '{label.upper()}')]/..")
-                for n in nodes:
-                    try:
-                        following = n.find_elements(By.XPATH, "following::*[contains(text(),'$') or contains(text(),'.') or contains(text(),',')]")
-                        for f in following[:6]:
-                            num = _extract_numeric_from_text(f.text)
-                            if num is not None and num > 0:
-                                found_val = num
-                                break
-                        if found_val:
-                            break
-                    except:
-                        continue
-                if found_val:
-                    resultados[key] = found_val
-                    continue
-            except:
-                pass
-            
-            # si no encontrado, dejar None
-            resultados[key] = found_val if found_val else None
+            resultados[key] = float(found_val) if found_val is not None else None
         
         return resultados
     except Exception as e:
-        # si algo falla, devolver None para todos (se manejará arriba)
+        # devolver None para todos si falla
         return {"CHICORAL": None, "COCORA": None, "GUALANDAY": None}
 
 # ===== MODIFICACIÓN: extract_powerbi_data con reintentos y extracción por peaje =====
@@ -472,7 +500,7 @@ def extract_powerbi_data(fecha_objetivo, max_retries=3):
                 # 5. EXTRAER PEAJES desde tabla RESUMEN COMERCIOS
                 peajes = find_resumen_comercios_values(driver)
                 
-                # Validación: considerar éxito si encontramos valor_texto y al menos los 3 peajes (o al menos 2)
+                # Validación: considerar éxito si encontramos valor_texto y al menos 2 peajes (o idealmente 3)
                 found_peajes = [v for v in peajes.values() if v is not None]
                 if valor_texto and len(found_peajes) >= 2:
                     # tomar screenshot final
@@ -835,7 +863,7 @@ def main():
                                 except:
                                     pass
                         
-                        # ===== NUEVO: Comparación POR PEAJE =====
+                        # ===== NUEVO: Comparación POR PEAJE (CORREGIDA) =====
                         st.subheader("🔎 RESULTADOS POR PEAJE")
                         mensajes_peaje = []
                         
@@ -845,11 +873,11 @@ def main():
                             
                             # convertir excel_val y powerbi_val a enteros para comparación exacta
                             try:
-                                excel_val_int = int(round(excel_val))
+                                excel_val_int = int(round(float(excel_val)))
                             except:
                                 excel_val_int = 0
                             try:
-                                powerbi_val_int = int(round(powerbi_val)) if powerbi_val is not None else None
+                                powerbi_val_int = int(round(float(powerbi_val))) if powerbi_val is not None else None
                             except:
                                 powerbi_val_int = None
                             
