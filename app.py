@@ -765,7 +765,7 @@ def main():
                                 st.metric("Power BI", valor_formateado)
                             with col2:
                                 st.metric("Excel", total_formateado)
-                            with col3():
+                            with col3:
                                 pass
                             with col3:
                                 if coinciden:
