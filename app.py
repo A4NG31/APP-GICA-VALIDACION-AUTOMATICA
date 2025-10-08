@@ -620,6 +620,12 @@ def main():
             st.subheader("🚀 Extracción y Validación")
             
             if st.button("🎯 Extraer Valor de Power BI y Comparar", type="primary", use_container_width=True):
+                
+                # 🔹 NUEVA VALIDACIÓN: evitar extracción si los valores son 0 o faltan
+                if total_general == 0 or any(v == 0 for v in valores.values()):
+                    st.error("❌ No se puede continuar. Una o más hojas no tienen un valor válido o el total general es 0.")
+                    st.stop()
+                
                 with st.spinner("🌐 Extrayendo datos de Power BI... Esto puede tomar 1-2 minutos"):
                     resultados = extract_powerbi_data(fecha_objetivo)
                     
@@ -667,17 +673,18 @@ def main():
                             col1, col2, col3 = st.columns(3)
                             screenshots = resultados.get('screenshots', {})
                             
-                            if 'inicial' in screenshots and os.path.exists(screenshots['inicial']):
+                            if 'inicial' in screenshots and os.path.exists(screenshots['inicial']): 
                                 with col1:
                                     st.image(screenshots['inicial'], caption="Reporte Inicial", use_column_width=True)
                             
-                            if 'seleccion' in screenshots and os.path.exists(screenshots['seleccion']):
+                            if 'seleccion' in screenshots and os.path.exists(screenshots['seleccion']): 
                                 with col2:
                                     st.image(screenshots['seleccion'], caption="Después de Selección", use_column_width=True)
                             
-                            if 'final' in screenshots and os.path.exists(screenshots['final']):
+                            if 'final' in screenshots and os.path.exists(screenshots['final']): 
                                 with col3:
-                                    st.image(screenshots['final'], caption="Vista Final", use_column_width=True)
+                                    st.image(screenshots['final'], caption="Reporte Final", use_column_width=True)
+
                                 
                     elif resultados:
                         st.error("❌ Se accedió al reporte pero no se encontró el valor específico")
