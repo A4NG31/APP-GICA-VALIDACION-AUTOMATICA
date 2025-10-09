@@ -535,10 +535,31 @@ def find_peaje_values(driver):
     
     return peajes
 
+def clean_pasos_text(text):
+    """Limpia el texto de pasos eliminando caracteres extraños y preservando solo números"""
+    if not text:
+        return None
+    
+    # Remover caracteres especiales y preservar solo números y comas
+    cleaned = re.sub(r'[^\d,]', '', text)
+    
+    # Si hay múltiples números separados por comas, tomar el primero (que debería ser la cantidad de pasos)
+    if ',' in cleaned:
+        parts = cleaned.split(',')
+        # Buscar el número que tenga sentido como cantidad de pasos (entre 100 y 999999)
+        for part in parts:
+            if part and part.isdigit():
+                num = int(part)
+                if 100 <= num <= 999999:
+                    return part
+    
+    # Si no hay comas o no encontramos un número válido, devolver el texto limpio
+    return cleaned if cleaned else None
+
 def find_resumen_comercios_pasos(driver):
     """
-    NUEVA FUNCIÓN: Buscar la tabla "RESUMEN COMERCIOS" y extraer la columna "Cant Pasos"
-    Retorna un diccionario con los pasos por peaje y el total
+    NUEVA FUNCIÓN MEJORADA: Buscar la tabla "RESUMEN COMERCIOS" y extraer la columna "Cant Pasos"
+    Versión mejorada para manejar el formato extraño que muestra
     """
     try:
         st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
@@ -568,102 +589,104 @@ def find_resumen_comercios_pasos(driver):
             st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
             return None
         
-        # Buscar la tabla completa
+        # ESTRATEGIA MEJORADA: Buscar en el contenedor completo
         try:
-            # Buscar la tabla más cercana al título
-            tabla = titulo_element.find_element(By.XPATH, "./ancestor::div[contains(@class, 'tableEx')] | ./following::div[contains(@class, 'tableEx')][1] | ./ancestor::div[contains(@style, 'table')] | ./following::table[1]")
+            # Buscar el contenedor principal de la tabla
+            container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=5]")
             
-            # Extraer todas las filas de la tabla
-            filas = tabla.find_elements(By.XPATH, ".//tr | .//div[contains(@class, 'row')]")
+            # Obtener todo el texto del contenedor
+            container_text = container.text
+            st.info(f"📝 Texto completo del contenedor: {container_text[:500]}...")
             
+            # Procesar el texto para extraer los datos estructurados
             datos_pasos = {}
-            encabezado_encontrado = False
-            columna_pasos_idx = -1
             
-            for fila in filas:
-                celdas = fila.find_elements(By.XPATH, ".//td | .//th | .//div[contains(@class, 'cell')]")
-                textos_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
-                
-                if not textos_celdas:
-                    continue
-                
-                # Buscar el encabezado que contiene "Cant Pasos"
-                if not encabezado_encontrado and any('CANT PASOS' in texto.upper() for texto in textos_celdas):
-                    encabezado_encontrado = True
-                    # Encontrar el índice de la columna "Cant Pasos"
-                    for idx, texto in enumerate(textos_celdas):
-                        if 'CANT PASOS' in texto.upper():
-                            columna_pasos_idx = idx
-                            break
-                    continue
-                
-                # Si ya encontramos el encabezado, buscar datos
-                if encabezado_encontrado and columna_pasos_idx >= 0 and len(textos_celdas) > columna_pasos_idx:
-                    # Buscar el nombre del peaje en la primera columna
-                    primer_texto = textos_celdas[0].upper()
-                    valor_pasos = textos_celdas[columna_pasos_idx]
-                    
-                    # Identificar el peaje
-                    if 'CHICORAL' in primer_texto:
-                        datos_pasos['CHICORAL'] = valor_pasos
-                    elif 'COCORA' in primer_texto:
-                        datos_pasos['COCORA'] = valor_pasos
-                    elif 'GUALANDAY' in primer_texto:
-                        datos_pasos['GUALANDAY'] = valor_pasos
-                    elif 'TOTAL' in primer_texto:
-                        datos_pasos['TOTAL'] = valor_pasos
+            # Buscar cada peaje en el texto
+            lineas = container_text.split('\n')
             
-            st.success(f"✅ Datos de pasos extraídos: {datos_pasos}")
-            return datos_pasos
+            for i, linea in enumerate(lineas):
+                linea_clean = linea.strip()
+                
+                # Buscar CHICORAL
+                if 'CHICORAL' in linea_clean.upper():
+                    # Buscar en las siguientes líneas números que parezcan cantidad de pasos
+                    for j in range(i+1, min(i+6, len(lineas))):
+                        siguiente_linea = lineas[j].strip()
+                        # Buscar un número que tenga sentido para cantidad de pasos
+                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
+                            # Limpiar y verificar si es un número válido
+                            numero_limpio = clean_pasos_text(siguiente_linea)
+                            if numero_limpio and numero_limpio.isdigit():
+                                num = int(numero_limpio)
+                                if 100 <= num <= 999999:  # Rango razonable para pasos
+                                    datos_pasos['CHICORAL'] = f"{num:,}".replace(",", ".")
+                                    break
+                
+                # Buscar COCORA
+                elif 'COCORA' in linea_clean.upper():
+                    for j in range(i+1, min(i+6, len(lineas))):
+                        siguiente_linea = lineas[j].strip()
+                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
+                            numero_limpio = clean_pasos_text(siguiente_linea)
+                            if numero_limpio and numero_limpio.isdigit():
+                                num = int(numero_limpio)
+                                if 100 <= num <= 999999:
+                                    datos_pasos['COCORA'] = f"{num:,}".replace(",", ".")
+                                    break
+                
+                # Buscar GUALANDAY
+                elif 'GUALANDAY' in linea_clean.upper():
+                    for j in range(i+1, min(i+6, len(lineas))):
+                        siguiente_linea = lineas[j].strip()
+                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
+                            numero_limpio = clean_pasos_text(siguiente_linea)
+                            if numero_limpio and numero_limpio.isdigit():
+                                num = int(numero_limpio)
+                                if 100 <= num <= 999999:
+                                    datos_pasos['GUALANDAY'] = f"{num:,}".replace(",", ".")
+                                    break
+                
+                # Buscar TOTAL
+                elif 'TOTAL' in linea_clean.upper() and not linea_clean.upper().startswith('RESUMEN'):
+                    for j in range(i+1, min(i+6, len(lineas))):
+                        siguiente_linea = lineas[j].strip()
+                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
+                            numero_limpio = clean_pasos_text(siguiente_linea)
+                            if numero_limpio and numero_limpio.isdigit():
+                                num = int(numero_limpio)
+                                if 1000 <= num <= 9999999:  # Rango más amplio para total
+                                    datos_pasos['TOTAL'] = f"{num:,}".replace(",", ".")
+                                    break
             
+            # Si no encontramos datos con la estrategia anterior, intentar una más agresiva
+            if not datos_pasos:
+                st.warning("🔄 Intentando estrategia alternativa de búsqueda...")
+                
+                # Buscar todos los números en el texto completo
+                all_numbers = re.findall(r'\b\d{1,3}(?:,\d{3})*\b', container_text)
+                st.info(f"🔢 Números encontrados en el texto: {all_numbers}")
+                
+                # Asignar números a peajes basado en el orden esperado
+                numbers_clean = [num.replace(',', '') for num in all_numbers if num.replace(',', '').isdigit()]
+                valid_numbers = [num for num in numbers_clean if 100 <= int(num) <= 9999999]
+                
+                if len(valid_numbers) >= 4:
+                    # Asumir que los primeros 4 números válidos son: CHICORAL, COCORA, GUALANDAY, TOTAL
+                    datos_pasos['CHICORAL'] = f"{int(valid_numbers[0]):,}".replace(",", ".")
+                    datos_pasos['COCORA'] = f"{int(valid_numbers[1]):,}".replace(",", ".")
+                    datos_pasos['GUALANDAY'] = f"{int(valid_numbers[2]):,}".replace(",", ".")
+                    datos_pasos['TOTAL'] = f"{int(valid_numbers[3]):,}".replace(",", ".")
+            
+            if datos_pasos:
+                st.success(f"✅ Datos de pasos extraídos y limpiados: {datos_pasos}")
+                return datos_pasos
+            else:
+                st.warning("❌ No se pudieron extraer datos de pasos del texto")
+                return None
+                
         except Exception as e:
-            st.warning(f"⚠️ No se pudo extraer datos estructurados de la tabla: {e}")
-            
-            # Estrategia alternativa: buscar cerca del título
-            try:
-                container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=3]")
-                all_text = container.text
-                
-                # Buscar patrones en el texto
-                lineas = all_text.split('\n')
-                datos_pasos = {}
-                
-                for i, linea in enumerate(lineas):
-                    linea_upper = linea.upper()
-                    if 'CHICORAL' in linea_upper and any(char.isdigit() for char in linea):
-                        # Buscar el número de pasos en esta línea o la siguiente
-                        for j in range(i, min(i+3, len(lineas))):
-                            texto = lineas[j]
-                            if any(char.isdigit() for char in texto) and len(texto) < 10:
-                                datos_pasos['CHICORAL'] = texto.strip()
-                                break
-                    elif 'COCORA' in linea_upper and any(char.isdigit() for char in linea):
-                        for j in range(i, min(i+3, len(lineas))):
-                            texto = lineas[j]
-                            if any(char.isdigit() for char in texto) and len(texto) < 10:
-                                datos_pasos['COCORA'] = texto.strip()
-                                break
-                    elif 'GUALANDAY' in linea_upper and any(char.isdigit() for char in linea):
-                        for j in range(i, min(i+3, len(lineas))):
-                            texto = lineas[j]
-                            if any(char.isdigit() for char in texto) and len(texto) < 10:
-                                datos_pasos['GUALANDAY'] = texto.strip()
-                                break
-                    elif 'TOTAL' in linea_upper and any(char.isdigit() for char in linea):
-                        for j in range(i, min(i+3, len(lineas))):
-                            texto = lineas[j]
-                            if any(char.isdigit() for char in texto) and len(texto) < 10:
-                                datos_pasos['TOTAL'] = texto.strip()
-                                break
-                
-                if datos_pasos:
-                    st.success(f"✅ Datos de pasos extraídos (alternativo): {datos_pasos}")
-                    return datos_pasos
-                    
-            except Exception as e2:
-                st.warning(f"⚠️ Estrategia alternativa también falló: {e2}")
-        
-        return None
+            st.error(f"❌ Error procesando el contenedor: {e}")
+            return None
         
     except Exception as e:
         st.error(f"❌ Error buscando resumen de comercios: {str(e)}")
@@ -1137,6 +1160,8 @@ def main():
                             with col4:
                                 pasos_total = resumen_pasos.get('TOTAL', 'N/A')
                                 st.metric("TOTAL - Pasos", pasos_total)
+                        else:
+                            st.warning("⚠️ No se pudieron extraer los datos de pasos por peaje de la tabla 'RESUMEN COMERCIOS'")
                         
                         st.markdown("---")
                         
