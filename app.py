@@ -118,11 +118,15 @@ def click_conciliacion_date(driver, fecha_objetivo):
                     time.sleep(1)
                     driver.execute_script("arguments[0].click();", elemento)
                     time.sleep(3)
+                    st.success("✅ Conciliación seleccionada correctamente")
                     return True
             except:
                 continue
+        
+        st.error("❌ No se encontró la conciliación para la fecha especificada")
         return False
     except Exception as e:
+        st.error(f"❌ Error al hacer clic en conciliación: {str(e)}")
         return False
 
 def find_cantidad_pasos_card(driver):
@@ -141,6 +145,7 @@ def find_cantidad_pasos_card(driver):
                 for elemento in elementos:
                     if elemento.is_displayed():
                         titulo_element = elemento
+                        st.success(f"✅ Título encontrado: {elemento.text.strip()}")
                         break
                 if titulo_element:
                     break
@@ -148,6 +153,7 @@ def find_cantidad_pasos_card(driver):
                 continue
         
         if not titulo_element:
+            st.warning("❌ No se encontró el título 'CANTIDAD PASOS'")
             return None
         
         # Buscar en el contenedor padre
@@ -165,12 +171,14 @@ def find_cantidad_pasos_card(driver):
                     
                     digit_count = sum(char.isdigit() for char in texto)
                     if digit_count >= 1:
+                        st.success(f"✅ Valor numérico encontrado: {texto}")
                         return texto
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ Búsqueda en contenedor falló: {e}")
         
         return None
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Error buscando cantidad de pasos: {str(e)}")
         return None
 
 def find_valor_a_pagar_comercio_card(driver):
@@ -188,6 +196,7 @@ def find_valor_a_pagar_comercio_card(driver):
                 for elemento in elementos:
                     if elemento.is_displayed():
                         titulo_element = elemento
+                        st.success("✅ Título 'VALOR A PAGAR A COMERCIO' encontrado")
                         break
                 if titulo_element:
                     break
@@ -195,6 +204,7 @@ def find_valor_a_pagar_comercio_card(driver):
                 continue
         
         if not titulo_element:
+            st.error("❌ No se encontró 'VALOR A PAGAR A COMERCIO' en el reporte")
             return None
         
         # Buscar valor numérico
@@ -205,12 +215,15 @@ def find_valor_a_pagar_comercio_card(driver):
             for elem in numeric_elements:
                 texto = elem.text.strip()
                 if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
+                    st.success(f"✅ Valor encontrado: {texto}")
                     return texto
         except:
             pass
         
+        st.error("❌ No se pudo encontrar el valor numérico")
         return None
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Error buscando valor: {str(e)}")
         return None
 
 def find_peaje_values(driver):
@@ -254,6 +267,7 @@ def find_peaje_values(driver):
                     if texto and any(char.isdigit() for char in texto):
                         if 'VALOR A PAGAR' not in texto.upper() and 'COMERCIO' not in texto.upper():
                             peajes[nombre_peaje] = texto
+                            st.success(f"✅ {nombre_peaje}: {texto}")
                             break
             except:
                 peajes[nombre_peaje] = None
@@ -268,28 +282,38 @@ def extract_pasos_por_peaje(container_text):
     try:
         datos_pasos = {}
         
+        st.info("🔍 Analizando tabla RESUMEN COMERCIOS...")
+        
         # ESTRATEGIA 1: Buscar patrones específicos
         chicoral_match = re.search(r'CHICORAL[^\d]*(\d{1,3},\d{3})', container_text, re.IGNORECASE)
         if chicoral_match:
             datos_pasos['CHICORAL'] = chicoral_match.group(1)
+            st.success(f"✅ CHICORAL: {chicoral_match.group(1)}")
         
         cocora_match = re.search(r'COCORA[^\d]*(\d{1,3},\d{3}|\d+)', container_text, re.IGNORECASE)
         if cocora_match:
             datos_pasos['COCORA'] = cocora_match.group(1)
+            st.success(f"✅ COCORA: {cocora_match.group(1)}")
         
         gualanday_match = re.search(r'GUALANDAY[^\d]*(\d{1,3},\d{3})', container_text, re.IGNORECASE)
         if gualanday_match:
             datos_pasos['GUALANDAY'] = gualanday_match.group(1)
+            st.success(f"✅ GUALANDAY: {gualanday_match.group(1)}")
         
         total_match = re.search(r'Total[^\d]*(\d{1,3},\d{3})', container_text, re.IGNORECASE)
         if total_match:
             datos_pasos['TOTAL'] = total_match.group(1)
+            st.success(f"✅ TOTAL: {total_match.group(1)}")
         
         # ESTRATEGIA 2: Si faltan datos, buscar números en contexto
         if len(datos_pasos) < 4:
+            st.warning("🔄 Usando estrategia alternativa...")
+            
             all_comma_numbers = re.findall(r'\b\d{1,3},\d{3}\b', container_text)
             all_simple_numbers = re.findall(r'\b\d{3,4}\b', container_text)
             all_numbers = all_comma_numbers + all_simple_numbers
+            
+            st.info(f"🔢 Números encontrados: {all_numbers}")
             
             valid_numbers = []
             for num_str in all_numbers:
@@ -298,6 +322,8 @@ def extract_pasos_por_peaje(container_text):
                     num_val = int(num_clean)
                     if 100 <= num_val <= 10000:
                         valid_numbers.append(num_str)
+            
+            st.info(f"🔢 Números válidos: {valid_numbers}")
             
             if len(valid_numbers) >= 4:
                 number_positions = []
@@ -313,15 +339,41 @@ def extract_pasos_por_peaje(container_text):
                     datos_pasos['COCORA'] = number_positions[1][1]
                     datos_pasos['GUALANDAY'] = number_positions[2][1]
                     datos_pasos['TOTAL'] = number_positions[3][1]
+                    st.success("✅ Datos asignados por orden de aparición")
         
-        return datos_pasos if datos_pasos else {}
+        # Validar coherencia
+        if datos_pasos:
+            if all(peaje in datos_pasos for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY', 'TOTAL']):
+                try:
+                    chicoral = int(datos_pasos['CHICORAL'].replace(',', ''))
+                    cocora = int(datos_pasos['COCORA'].replace(',', ''))
+                    gualanday = int(datos_pasos['GUALANDAY'].replace(',', ''))
+                    total = int(datos_pasos['TOTAL'].replace(',', ''))
+                    
+                    suma_calculada = chicoral + cocora + gualanday
+                    
+                    if suma_calculada == total:
+                        st.success(f"✅ Coherencia verificada: {chicoral} + {cocora} + {gualanday} = {total}")
+                    else:
+                        st.warning(f"⚠️ Discrepancia: Calculado={suma_calculada}, Reportado={total}")
+                except ValueError as e:
+                    st.warning(f"⚠️ Error en conversión: {e}")
             
-    except Exception:
+            st.success(f"✅ Datos finales: {datos_pasos}")
+            return datos_pasos
+        else:
+            st.error("❌ No se pudieron extraer los datos de pasos")
+            return {}
+            
+    except Exception as e:
+        st.error(f"❌ Error en extracción de pasos: {e}")
         return {}
 
 def find_resumen_comercios_pasos(driver):
     """Buscar la tabla 'RESUMEN COMERCIOS' y extraer pasos"""
     try:
+        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
+        
         titulo_selectors = [
             "//*[contains(text(), 'RESUMEN COMERCIOS')]",
             "//*[contains(text(), 'Resumen Comercios')]",
@@ -334,6 +386,7 @@ def find_resumen_comercios_pasos(driver):
                 for elemento in elementos:
                     if elemento.is_displayed():
                         titulo_element = elemento
+                        st.success("✅ Tabla 'RESUMEN COMERCIOS' encontrada")
                         break
                 if titulo_element:
                     break
@@ -341,18 +394,23 @@ def find_resumen_comercios_pasos(driver):
                 continue
         
         if not titulo_element:
+            st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
             return None
         
         try:
             container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=5]")
             container_text = container.text
+            st.info(f"📝 Texto de la tabla: {container_text[:300]}...")
+            
             datos_pasos = extract_pasos_por_peaje(container_text)
             return datos_pasos if datos_pasos else None
                 
-        except Exception:
+        except Exception as e:
+            st.error(f"❌ Error procesando contenedor: {e}")
             return None
         
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Error buscando resumen de comercios: {str(e)}")
         return None
 
 def extract_powerbi_data(fecha_objetivo):
@@ -369,6 +427,7 @@ def extract_powerbi_data(fecha_objetivo):
             driver.get(REPORT_URL)
             time.sleep(10)
         
+        st.success("✅ Página de Power BI cargada")
         driver.save_screenshot("powerbi_inicial.png")
         
         if not click_conciliacion_date(driver, fecha_objetivo):
@@ -378,6 +437,10 @@ def extract_powerbi_data(fecha_objetivo):
         driver.save_screenshot("powerbi_despues_seleccion.png")
         
         valor_texto = find_valor_a_pagar_comercio_card(driver)
+        if not valor_texto:
+            st.error("❌ No se pudo extraer el valor principal")
+            return None
+            
         cantidad_pasos_texto = find_cantidad_pasos_card(driver)
         
         if not cantidad_pasos_texto:
@@ -388,6 +451,8 @@ def extract_powerbi_data(fecha_objetivo):
         
         valores_peajes = find_peaje_values(driver)
         driver.save_screenshot("powerbi_final.png")
+        
+        st.success("✅ Extracción de Power BI completada")
         
         return {
             'valor_texto': valor_texto,
@@ -405,7 +470,8 @@ def extract_powerbi_data(fecha_objetivo):
         st.error(f"❌ Error durante la extracción: {str(e)}")
         return None
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
         
 def buscar_cantidad_pasos_alternativo(driver):
     """Búsqueda alternativa para CANTIDAD PASOS"""
@@ -423,6 +489,7 @@ def buscar_cantidad_pasos_alternativo(driver):
                 if clean_text.isdigit():
                     num_value = int(clean_text)
                     if 100 <= num_value <= 999999:
+                        st.success(f"✅ Valor alternativo encontrado: {texto}")
                         return texto
         
         return None
@@ -696,9 +763,11 @@ def main():
             
             # Parámetros de ejecución
             if fecha_desde_archivo:
+                st.info(f"🤖 **Extracción Automática Activada** | Fecha: {fecha_desde_archivo.strftime('%Y-%m-%d')}")
                 fecha_objetivo = fecha_desde_archivo.strftime("%Y-%m-%d")
                 ejecutar_extraccion = True
             else:
+                st.subheader("📅 Parámetros de Búsqueda")
                 fecha_conciliacion = st.date_input(
                     "Fecha de Conciliación",
                     value=pd.to_datetime("2025-09-04")
@@ -811,48 +880,6 @@ def main():
                             st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los peajes coinciden, pero el total tiene diferencias")
                         else:
                             st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en total y peajes")
-                        
-                        # Detalles adicionales
-                        with st.expander("🔍 Ver Detalles Completos"):
-                            resumen_data = []
-                            
-                            resumen_data.append({
-                                'Concepto': 'TOTAL GENERAL',
-                                'Power BI': f"${powerbi_numero:,.0f}".replace(",", "."),
-                                'Excel': f"${excel_numero:,.0f}".replace(",", "."),
-                                'Estado': '✅ Coincide' if coinciden else '❌ No coincide',
-                                'Diferencia': f"${abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."),
-                            })
-                            
-                            resumen_data.append({
-                                'Concepto': 'CANTIDAD DE PASOS',
-                                'Power BI': cantidad_pasos_texto,
-                                'Excel': 'N/A',
-                                'Estado': 'ℹ️ Solo Power BI',
-                                'Diferencia': 'N/A',
-                            })
-                            
-                            if resumen_pasos:
-                                for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-                                    resumen_data.append({
-                                        'Concepto': f'{peaje} - PASOS',
-                                        'Power BI': resumen_pasos.get(peaje, 'N/A'),
-                                        'Excel': 'N/A',
-                                        'Estado': 'ℹ️ Solo Power BI',
-                                        'Diferencia': 'N/A',
-                                    })
-                            
-                            for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
-                                comp = comparaciones_peajes[peaje]
-                                resumen_data.append({
-                                    'Concepto': peaje,
-                                    'Power BI': comp['powerbi_texto'],
-                                    'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
-                                    'Estado': '✅ Coincide' if comp['coinciden'] else '❌ No coincide',
-                                    'Diferencia': f"${comp['diferencia']:,.0f}".replace(",", "."),
-                                })
-                            
-                            st.dataframe(pd.DataFrame(resumen_data), use_container_width=True, hide_index=True)
                                 
                     else:
                         st.error("❌ No se pudieron extraer datos del reporte Power BI")
