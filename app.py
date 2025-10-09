@@ -535,163 +535,88 @@ def find_peaje_values(driver):
     
     return peajes
 
-def clean_pasos_text(text):
-    """Limpia el texto de pasos preservando números con comas completos"""
-    if not text:
-        return None
-    
-    # Primero, buscar números con formato de miles (1,500, 2,155, etc.)
-    numbers_with_commas = re.findall(r'\b\d{1,3}(?:,\d{3})?\b', text)
-    
-    if numbers_with_commas:
-        # Devolver el primer número con formato de miles encontrado
-        return numbers_with_commas[0]
-    
-    # Si no hay números con comas, buscar cualquier número
-    all_numbers = re.findall(r'\b\d+\b', text)
-    if all_numbers:
-        # Buscar números en rangos razonables para pasos
-        for num_str in all_numbers:
-            num = int(num_str)
-            if 100 <= num <= 999999:
-                return num_str
-    
-    return None
-
-def find_resumen_comercios_pasos(driver):
+def extract_pasos_por_peaje(container_text):
     """
-    FUNCIÓN MEJORADA: Buscar la tabla "RESUMEN COMERCIOS" y extraer la columna "Cant Pasos"
-    Versión optimizada para el formato específico del Power BI
+    FUNCIÓN COMPLETAMENTE NUEVA: Extrae específicamente los pasos por peaje del texto
+    Basado en el formato exacto: PEAJE CHICORAL 1,500 112 33,882,900...
     """
     try:
-        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
+        st.info("🔍 Analizando estructura de la tabla RESUMEN COMERCIOS...")
         
-        # Buscar la tabla por su título
-        titulo_selectors = [
-            "//*[contains(text(), 'RESUMEN COMERCIOS')]",
-            "//*[contains(text(), 'Resumen Comercios')]",
-            "//*[contains(text(), 'RESUMEN') and contains(text(), 'COMERCIOS')]",
-        ]
+        # Limpiar el texto - reemplazar saltos de línea y espacios múltiples
+        clean_text = ' '.join(container_text.split())
         
-        titulo_element = None
-        for selector in titulo_selectors:
-            try:
-                elementos = driver.find_elements(By.XPATH, selector)
-                for elemento in elementos:
-                    if elemento.is_displayed():
-                        titulo_element = elemento
-                        st.success("✅ Tabla 'RESUMEN COMERCIOS' encontrada")
-                        break
-                if titulo_element:
-                    break
-            except:
-                continue
+        # BUSCAR PATRONES ESPECÍFICOS PARA CADA PEAJE
+        datos_pasos = {}
         
-        if not titulo_element:
-            st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
-            return None
+        # Patrón para CHICORAL: busca "CHICORAL" seguido de números
+        chicoral_match = re.search(r'CHICORAL.*?(\d{1,3}(?:,\d{3})?)\s+(\d+)\s+[\d,]+', clean_text, re.IGNORECASE)
+        if chicoral_match:
+            # El primer número después de CHICORAL es Cant Pasos, el segundo es Cant Ajustes
+            datos_pasos['CHICORAL'] = chicoral_match.group(1)  # 1,500
+            st.success(f"✅ CHICORAL - Pasos: {chicoral_match.group(1)}, Ajustes: {chicoral_match.group(2)}")
         
-        # ESTRATEGIA MEJORADA: Buscar en el contenedor completo
-        try:
-            # Buscar el contenedor principal de la tabla
-            container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=5]")
+        # Patrón para COCORA: busca "COCORA" seguido de números  
+        cocora_match = re.search(r'COCORA.*?(\d{1,3}(?:,\d{3})?)\s+(\d+)\s+[\d,]+', clean_text, re.IGNORECASE)
+        if cocora_match:
+            datos_pasos['COCORA'] = cocora_match.group(1)  # 641
+            st.success(f"✅ COCORA - Pasos: {cocora_match.group(1)}, Ajustes: {cocora_match.group(2)}")
+        
+        # Patrón para GUALANDAY: busca "GUALANDAY" seguido de números
+        gualanday_match = re.search(r'GUALANDAY.*?(\d{1,3}(?:,\d{3})?)\s+(\d+)\s+[\d,]+', clean_text, re.IGNORECASE)
+        if gualanday_match:
+            datos_pasos['GUALANDAY'] = gualanday_match.group(1)  # 2,155
+            st.success(f"✅ GUALANDAY - Pasos: {gualanday_match.group(1)}, Ajustes: {gualanday_match.group(2)}")
+        
+        # Patrón para TOTAL: busca "Total" seguido de números
+        total_match = re.search(r'Total.*?(\d{1,3}(?:,\d{3})?)\s+(\d+)\s+[\d,]+', clean_text, re.IGNORECASE)
+        if total_match:
+            datos_pasos['TOTAL'] = total_match.group(1)  # 4,296
+            st.success(f"✅ TOTAL - Pasos: {total_match.group(1)}, Ajustes: {total_match.group(2)}")
+        
+        # Si no encontramos con el primer método, intentar método alternativo
+        if len(datos_pasos) < 4:
+            st.warning("🔄 Usando método alternativo de extracción...")
             
-            # Obtener todo el texto del contenedor
-            container_text = container.text
-            st.info(f"📝 Texto completo del contenedor: {container_text[:500]}...")
+            # Buscar todos los números en el orden que aparecen después de cada peaje
+            peajes = ['CHICORAL', 'COCORA', 'GUALANDAY', 'Total']
             
-            # PROCESAMIENTO MEJORADO: Extraer datos estructurados
-            datos_pasos = {}
-            
-            # Buscar patrones específicos para cada peaje
-            patrones = {
-                'CHICORAL': r'CHICORAL.*?(\d{1,3}(?:,\d{3})?)',
-                'COCORA': r'COCORA.*?(\d{1,3}(?:,\d{3})?)', 
-                'GUALANDAY': r'GUALANDAY.*?(\d{1,3}(?:,\d{3})?)',
-                'TOTAL': r'Total.*?(\d{1,3}(?:,\d{3})?)'
-            }
-            
-            for peaje, patron in patrones.items():
-                match = re.search(patron, container_text, re.IGNORECASE | re.DOTALL)
+            for i, peaje in enumerate(peajes):
+                # Buscar el peaje y capturar los siguientes 3 números
+                pattern = rf'{peaje}.*?(\d{{1,3}}(?:,\d{{3}})?)\s+(\d+)\s+([\d,]+)'
+                match = re.search(pattern, clean_text, re.IGNORECASE)
+                
                 if match:
-                    numero = match.group(1)
-                    datos_pasos[peaje] = numero
-                    st.success(f"✅ {peaje}: {numero}")
+                    datos_pasos[peaje] = match.group(1)  # Primer número = Cant Pasos
+                    st.success(f"✅ {peaje} - Pasos: {match.group(1)}")
+        
+        # Verificar coherencia de los datos
+        if all(peaje in datos_pasos for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY', 'TOTAL']):
+            try:
+                chicoral = int(datos_pasos['CHICORAL'].replace(',', ''))
+                cocora = int(datos_pasos['COCORA'].replace(',', ''))
+                gualanday = int(datos_pasos['GUALANDAY'].replace(',', ''))
+                total = int(datos_pasos['TOTAL'].replace(',', ''))
+                
+                suma_calculada = chicoral + cocora + gualanday
+                
+                if suma_calculada == total:
+                    st.success(f"✅ Coherencia verificada: {chicoral} + {cocora} + {gualanday} = {total}")
                 else:
-                    st.warning(f"⚠️ No se encontró número para {peaje}")
-            
-            # Si no encontramos con patrones, intentar estrategia alternativa
-            if not datos_pasos:
-                st.warning("🔄 Intentando estrategia alternativa...")
-                
-                # Buscar todos los números con formato de miles
-                all_numbers = re.findall(r'\b\d{1,3}(?:,\d{3})?\b', container_text)
-                st.info(f"🔢 Todos los números encontrados: {all_numbers}")
-                
-                # Filtrar números que tengan sentido como cantidad de pasos
-                valid_numbers = []
-                for num_str in all_numbers:
-                    num_clean = num_str.replace(',', '')
-                    if num_clean.isdigit():
-                        num_val = int(num_clean)
-                        # Para pasos individuales: entre 100 y 10,000
-                        # Para total: entre 1,000 y 50,000
-                        if (100 <= num_val <= 10000) or (peaje == 'TOTAL' and 1000 <= num_val <= 50000):
-                            valid_numbers.append(num_str)
-                
-                st.info(f"🔢 Números válidos filtrados: {valid_numbers}")
-                
-                # Asignar basado en el orden esperado y cantidad de números
-                if len(valid_numbers) >= 4:
-                    datos_pasos['CHICORAL'] = valid_numbers[0]
-                    datos_pasos['COCORA'] = valid_numbers[1]
-                    datos_pasos['GUALANDAY'] = valid_numbers[2]
-                    datos_pasos['TOTAL'] = valid_numbers[3]
-                elif len(valid_numbers) >= 3:
-                    datos_pasos['CHICORAL'] = valid_numbers[0]
-                    datos_pasos['COCORA'] = valid_numbers[1]
-                    datos_pasos['GUALANDAY'] = valid_numbers[2]
-                    # Calcular total si falta
-                    if 'TOTAL' not in datos_pasos:
-                        total_calculado = sum(int(num.replace(',', '')) for num in valid_numbers[:3])
-                        datos_pasos['TOTAL'] = f"{total_calculado:,}"
-            
-            # Verificar que los números tengan sentido
-            if datos_pasos:
-                # Validar coherencia de datos
-                if all(peaje in datos_pasos for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY', 'TOTAL']):
-                    chicoral = int(datos_pasos['CHICORAL'].replace(',', ''))
-                    cocora = int(datos_pasos['COCORA'].replace(',', ''))
-                    gualanday = int(datos_pasos['GUALANDAY'].replace(',', ''))
-                    total = int(datos_pasos['TOTAL'].replace(',', ''))
+                    st.warning(f"⚠️ Discrepancia en totales: Calculado={suma_calculada}, Reportado={total}")
                     
-                    total_calculado = chicoral + cocora + gualanday
-                    
-                    if total_calculado != total:
-                        st.warning(f"⚠️ Los totales no coinciden: Calculado={total_calculado}, Reportado={total}")
-                        # Usar el total calculado si la diferencia es pequeña
-                        if abs(total_calculado - total) <= 10:  # Tolerancia de 10 pasos
-                            datos_pasos['TOTAL'] = f"{total_calculado:,}"
-                            st.info("✅ Se usó el total calculado (diferencia menor a 10)")
-                
-                st.success(f"✅ Datos de pasos finales: {datos_pasos}")
-                return datos_pasos
-            else:
-                st.error("❌ No se pudieron extraer datos de pasos del texto")
-                return None
-                
-        except Exception as e:
-            st.error(f"❌ Error procesando el contenedor: {e}")
-            return None
+            except ValueError as e:
+                st.warning(f"⚠️ Error en conversión de números: {e}")
+        
+        return datos_pasos
         
     except Exception as e:
-        st.error(f"❌ Error buscando resumen de comercios: {str(e)}")
-        return None
+        st.error(f"❌ Error en extract_pasos_por_peaje: {e}")
+        return {}
 
 def find_resumen_comercios_pasos(driver):
     """
-    NUEVA FUNCIÓN MEJORADA: Buscar la tabla "RESUMEN COMERCIOS" y extraer la columna "Cant Pasos"
-    Versión mejorada para manejar el formato extraño que muestra
+    FUNCIÓN COMPLETAMENTE REESCRITA: Buscar la tabla "RESUMEN COMERCIOS" y extraer correctamente "Cant Pasos"
     """
     try:
         st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
@@ -721,7 +646,6 @@ def find_resumen_comercios_pasos(driver):
             st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
             return None
         
-        # ESTRATEGIA MEJORADA: Buscar en el contenedor completo
         try:
             # Buscar el contenedor principal de la tabla
             container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=5]")
@@ -730,90 +654,14 @@ def find_resumen_comercios_pasos(driver):
             container_text = container.text
             st.info(f"📝 Texto completo del contenedor: {container_text[:500]}...")
             
-            # Procesar el texto para extraer los datos estructurados
-            datos_pasos = {}
-            
-            # Buscar cada peaje en el texto
-            lineas = container_text.split('\n')
-            
-            for i, linea in enumerate(lineas):
-                linea_clean = linea.strip()
-                
-                # Buscar CHICORAL
-                if 'CHICORAL' in linea_clean.upper():
-                    # Buscar en las siguientes líneas números que parezcan cantidad de pasos
-                    for j in range(i+1, min(i+6, len(lineas))):
-                        siguiente_linea = lineas[j].strip()
-                        # Buscar un número que tenga sentido para cantidad de pasos
-                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
-                            # Limpiar y verificar si es un número válido
-                            numero_limpio = clean_pasos_text(siguiente_linea)
-                            if numero_limpio and numero_limpio.isdigit():
-                                num = int(numero_limpio)
-                                if 100 <= num <= 999999:  # Rango razonable para pasos
-                                    datos_pasos['CHICORAL'] = f"{num:,}".replace(",", ".")
-                                    break
-                
-                # Buscar COCORA
-                elif 'COCORA' in linea_clean.upper():
-                    for j in range(i+1, min(i+6, len(lineas))):
-                        siguiente_linea = lineas[j].strip()
-                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
-                            numero_limpio = clean_pasos_text(siguiente_linea)
-                            if numero_limpio and numero_limpio.isdigit():
-                                num = int(numero_limpio)
-                                if 100 <= num <= 999999:
-                                    datos_pasos['COCORA'] = f"{num:,}".replace(",", ".")
-                                    break
-                
-                # Buscar GUALANDAY
-                elif 'GUALANDAY' in linea_clean.upper():
-                    for j in range(i+1, min(i+6, len(lineas))):
-                        siguiente_linea = lineas[j].strip()
-                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
-                            numero_limpio = clean_pasos_text(siguiente_linea)
-                            if numero_limpio and numero_limpio.isdigit():
-                                num = int(numero_limpio)
-                                if 100 <= num <= 999999:
-                                    datos_pasos['GUALANDAY'] = f"{num:,}".replace(",", ".")
-                                    break
-                
-                # Buscar TOTAL
-                elif 'TOTAL' in linea_clean.upper() and not linea_clean.upper().startswith('RESUMEN'):
-                    for j in range(i+1, min(i+6, len(lineas))):
-                        siguiente_linea = lineas[j].strip()
-                        if siguiente_linea and any(char.isdigit() for char in siguiente_linea):
-                            numero_limpio = clean_pasos_text(siguiente_linea)
-                            if numero_limpio and numero_limpio.isdigit():
-                                num = int(numero_limpio)
-                                if 1000 <= num <= 9999999:  # Rango más amplio para total
-                                    datos_pasos['TOTAL'] = f"{num:,}".replace(",", ".")
-                                    break
-            
-            # Si no encontramos datos con la estrategia anterior, intentar una más agresiva
-            if not datos_pasos:
-                st.warning("🔄 Intentando estrategia alternativa de búsqueda...")
-                
-                # Buscar todos los números en el texto completo
-                all_numbers = re.findall(r'\b\d{1,3}(?:,\d{3})*\b', container_text)
-                st.info(f"🔢 Números encontrados en el texto: {all_numbers}")
-                
-                # Asignar números a peajes basado en el orden esperado
-                numbers_clean = [num.replace(',', '') for num in all_numbers if num.replace(',', '').isdigit()]
-                valid_numbers = [num for num in numbers_clean if 100 <= int(num) <= 9999999]
-                
-                if len(valid_numbers) >= 4:
-                    # Asumir que los primeros 4 números válidos son: CHICORAL, COCORA, GUALANDAY, TOTAL
-                    datos_pasos['CHICORAL'] = f"{int(valid_numbers[0]):,}".replace(",", ".")
-                    datos_pasos['COCORA'] = f"{int(valid_numbers[1]):,}".replace(",", ".")
-                    datos_pasos['GUALANDAY'] = f"{int(valid_numbers[2]):,}".replace(",", ".")
-                    datos_pasos['TOTAL'] = f"{int(valid_numbers[3]):,}".replace(",", ".")
+            # Usar la nueva función especializada para extraer los pasos
+            datos_pasos = extract_pasos_por_peaje(container_text)
             
             if datos_pasos:
-                st.success(f"✅ Datos de pasos extraídos y limpiados: {datos_pasos}")
+                st.success(f"✅ Datos de pasos extraídos correctamente: {datos_pasos}")
                 return datos_pasos
             else:
-                st.warning("❌ No se pudieron extraer datos de pasos del texto")
+                st.error("❌ No se pudieron extraer los datos de pasos")
                 return None
                 
         except Exception as e:
@@ -1168,7 +1016,7 @@ def main():
     - Comparar con Power BI (Total, Pasos y por Peaje)
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.2 - Con Cantidad de Pasos por Peaje
+    **Versión:** v2.3 - Con Cantidad de Pasos por Peaje MEJORADO
     """)
     
     # Estado del sistema
@@ -1477,10 +1325,10 @@ def main():
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características NUEVAS (v2.2):**
+        **Características NUEVAS (v2.3):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
         - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
-        - ✅ **Pasos por Peaje**: Extrae de la tabla "RESUMEN COMERCIOS" la columna "Cant Pasos"
+        - ✅ **Pasos por Peaje MEJORADO**: Extrae correctamente de "RESUMEN COMERCIOS" la columna "Cant Pasos"
         - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
         - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
@@ -1502,4 +1350,4 @@ if __name__ == "__main__":
 
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.2</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.3</div>', unsafe_allow_html=True)
