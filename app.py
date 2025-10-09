@@ -1,6 +1,8 @@
 import os
 import sys
 
+
+
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
@@ -155,14 +157,14 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ===== FUNCIONES DE EXTRACCIÓN DE POWER BI =====
+# ===== FUNCIONES DE EXTRACCIÓN DE POWER BI (ACTUALIZADAS) =====
 
 def setup_driver():
-    """Configurar ChromeDriver para Selenium - VERSIÓN PARA STREAMLIT CLOUD"""
+    """Configurar ChromeDriver para Selenium - VERSIÓN COMPATIBLE"""
     try:
         chrome_options = Options()
         
-        # Opciones para Streamlit Cloud
+        # Opciones para mejor compatibilidad
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -171,44 +173,18 @@ def setup_driver():
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-software-rasterizer")
         
         # User agent real
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Intentar múltiples métodos
+        # SOLUCIÓN: Usar ChromeDriver del sistema instalado via packages.txt
         try:
-            # Método 1: Chrome del sistema (Streamlit Cloud)
-            chrome_options.binary_location = "/usr/bin/chromium"
-            service = Service("/usr/bin/chromedriver")
-            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver = webdriver.Chrome(options=chrome_options)
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            st.success("✅ ChromeDriver configurado correctamente")
             return driver
-        except Exception as e1:
-            try:
-                # Método 2: Sin especificar ubicaciones
-                driver = webdriver.Chrome(options=chrome_options)
-                driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                st.success("✅ ChromeDriver configurado correctamente")
-                return driver
-            except Exception as e2:
-                try:
-                    # Método 3: Usando webdriver-manager
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    from webdriver_manager.core.os_manager import ChromeType
-                    
-                    service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
-                    driver = webdriver.Chrome(service=service, options=chrome_options)
-                    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                    st.success("✅ ChromeDriver configurado correctamente")
-                    return driver
-                except Exception as e3:
-                    st.error(f"❌ Error método 1: {e1}")
-                    st.error(f"❌ Error método 2: {e2}")
-                    st.error(f"❌ Error método 3: {e3}")
-                    return None
+        except Exception as e:
+            st.error(f"❌ Error al configurar ChromeDriver: {e}")
+            return None
             
     except Exception as e:
         st.error(f"❌ Error crítico al configurar ChromeDriver: {e}")
@@ -217,6 +193,7 @@ def setup_driver():
 def click_conciliacion_date(driver, fecha_objetivo):
     """Hacer clic en la conciliación específica por fecha"""
     try:
+        # Buscar el elemento que contiene la fecha exacta
         selectors = [
             f"//*[contains(text(), 'Conciliación APP GICA del {fecha_objetivo}')]",
             f"//*[contains(text(), 'CONCILIACIÓN APP GICA DEL {fecha_objetivo}')]",
@@ -236,6 +213,7 @@ def click_conciliacion_date(driver, fecha_objetivo):
                 continue
         
         if elemento_conciliacion:
+            # Hacer clic en el elemento
             driver.execute_script("arguments[0].scrollIntoView(true);", elemento_conciliacion)
             time.sleep(1)
             driver.execute_script("arguments[0].click();", elemento_conciliacion)
@@ -250,13 +228,19 @@ def click_conciliacion_date(driver, fecha_objetivo):
         return False
 
 def find_cantidad_pasos_card(driver):
-    """Buscar la tarjeta 'CANTIDAD PASOS' a la derecha de 'VALOR A PAGAR A COMERCIO'"""
+    """Buscar la tarjeta/table 'CANTIDAD PASOS' a la derecha de 'VALOR A PAGAR A COMERCIO'"""
     try:
+        st.info("🔍 Buscando 'CANTIDAD PASOS' en el reporte...")
+        
+        # Buscar por diferentes patrones del título - MÁS ESPECÍFICO
         titulo_selectors = [
             "//*[contains(text(), 'CANTIDAD PASOS')]",
             "//*[contains(text(), 'Cantidad Pasos')]",
             "//*[contains(text(), 'CANTIDAD DE PASOS')]",
             "//*[contains(text(), 'Cantidad de Pasos')]",
+            "//*[contains(text(), 'CANTIDAD') and contains(text(), 'PASOS')]",
+            "//*[text()='CANTIDAD PASOS']",
+            "//*[text()='Cantidad Pasos']",
         ]
         
         titulo_element = None
@@ -266,31 +250,46 @@ def find_cantidad_pasos_card(driver):
                 for elemento in elementos:
                     if elemento.is_displayed():
                         texto = elemento.text.strip()
-                        if "CANTIDAD" in texto.upper() and "PASOS" in texto.upper():
+                        if any(palabra in texto.upper() for palabra in ['CANTIDAD', 'PASOS']):
                             titulo_element = elemento
+                            st.success(f"✅ Título encontrado: {texto}")
                             break
                 if titulo_element:
                     break
-            except:
+            except Exception as e:
                 continue
         
         if not titulo_element:
+            st.warning("❌ No se encontró el título 'CANTIDAD PASOS'")
             return None
         
-        # Buscar el valor numérico
+        # ESTRATEGIA MEJORADA: Buscar en el mismo contenedor o contenedores cercanos
         try:
+            # Buscar en el contenedor padre
             container = titulo_element.find_element(By.XPATH, "./..")
-            numeric_elements = container.find_elements(By.XPATH, ".//*")
             
-            for elem in numeric_elements:
+            # Buscar TODOS los elementos numéricos en el contenedor
+            all_elements = container.find_elements(By.XPATH, ".//*")
+            
+            for elem in all_elements:
                 texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
-                    if len(texto) < 20 and "$" not in texto:
+                # Verificar si es un número (contiene dígitos pero no texto largo)
+                if (texto and 
+                    any(char.isdigit() for char in texto) and 
+                    len(texto) < 20 and 
+                    texto != titulo_element.text and
+                    not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                    
+                    # Verificar formato numérico (puede tener comas, puntos, pero ser principalmente números)
+                    digit_count = sum(char.isdigit() for char in texto)
+                    if digit_count >= 1:  # Al menos un dígito
+                        st.success(f"✅ Valor numérico encontrado: {texto}")
                         return texto
-        except:
-            pass
+                        
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 1 falló: {e}")
         
-        # Estrategia 2
+        # ESTRATEGIA 2: Buscar elementos hermanos específicamente
         try:
             parent = titulo_element.find_element(By.XPATH, "./..")
             siblings = parent.find_elements(By.XPATH, "./*")
@@ -298,20 +297,79 @@ def find_cantidad_pasos_card(driver):
             for sibling in siblings:
                 if sibling != titulo_element:
                     texto = sibling.text.strip()
-                    if texto and any(char.isdigit() for char in texto):
-                        if len(texto) < 20 and "$" not in texto:
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                        
+                        digit_count = sum(char.isdigit() for char in texto)
+                        if digit_count >= 1:
+                            st.success(f"✅ Valor encontrado en hermano: {texto}")
                             return texto
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 2 falló: {e}")
         
+        # ESTRATEGIA 3: Buscar elementos que siguen al título
+        try:
+            # Buscar elementos que están después del título
+            following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), 'CANTIDAD PASOS')]/following::*")
+            
+            for i, elem in enumerate(following_elements[:20]):  # Buscar en los primeros 20 elementos siguientes
+                texto = elem.text.strip()
+                if (texto and 
+                    any(char.isdigit() for char in texto) and 
+                    len(texto) < 20 and
+                    not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                    
+                    digit_count = sum(char.isdigit() for char in texto)
+                    if digit_count >= 1:
+                        st.success(f"✅ Valor encontrado en elemento siguiente {i}: {texto}")
+                        return texto
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 3 falló: {e}")
+        
+        # ESTRATEGIA 4: Buscar cerca de "VALOR A PAGAR A COMERCIO"
+        try:
+            # Encontrar "VALOR A PAGAR A COMERCIO" primero
+            valor_element = driver.find_element(By.XPATH, "//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]")
+            if valor_element:
+                # Buscar elementos a la derecha o cerca
+                container_valor = valor_element.find_element(By.XPATH, "./..")
+                # Buscar en el mismo nivel jerárquico
+                all_nearby = container_valor.find_elements(By.XPATH, ".//*")
+                
+                for elem in all_nearby:
+                    texto = elem.text.strip()
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        'CANTIDAD' in texto.upper() and 'PASOS' in texto.upper()):
+                        # Este es el título, buscar el siguiente elemento numérico
+                        continue
+                    
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO'])):
+                        
+                        digit_count = sum(char.isdigit() for char in texto)
+                        if digit_count >= 1:
+                            st.success(f"✅ Valor encontrado cerca de VALOR A PAGAR: {texto}")
+                            return texto
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 4 falló: {e}")
+        
+        st.error("❌ No se pudo encontrar el valor numérico de CANTIDAD PASOS")
         return None
         
     except Exception as e:
+        st.error(f"❌ Error buscando cantidad de pasos: {str(e)}")
         return None
 
 def find_valor_a_pagar_comercio_card(driver):
-    """Buscar la tarjeta 'VALOR A PAGAR A COMERCIO'"""
+    """Buscar la tarjeta/table 'VALOR A PAGAR A COMERCIO' en la parte superior derecha"""
     try:
+        # Buscar por diferentes patrones del título
         titulo_selectors = [
             "//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]",
             "//*[contains(text(), 'Valor a pagar a comercio')]",
@@ -339,7 +397,8 @@ def find_valor_a_pagar_comercio_card(driver):
             st.error("❌ No se encontró 'VALOR A PAGAR A COMERCIO' en el reporte")
             return None
         
-        # Estrategia 1
+        # Buscar el valor numérico debajo del título
+        # Estrategia 1: Buscar en el mismo contenedor
         try:
             container = titulo_element.find_element(By.XPATH, "./..")
             numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), '$') or contains(text(), ',') or contains(text(), '.')]")
@@ -351,7 +410,7 @@ def find_valor_a_pagar_comercio_card(driver):
         except:
             pass
         
-        # Estrategia 2
+        # Estrategia 2: Buscar en elementos hermanos
         try:
             parent = titulo_element.find_element(By.XPATH, "./..")
             siblings = parent.find_elements(By.XPATH, "./*")
@@ -364,7 +423,7 @@ def find_valor_a_pagar_comercio_card(driver):
         except:
             pass
         
-        # Estrategia 3
+        # Estrategia 3: Buscar debajo del título
         try:
             following_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]/following::*")
             
@@ -383,12 +442,15 @@ def find_valor_a_pagar_comercio_card(driver):
         return None
 
 def find_peaje_values(driver):
-    """Buscar valores individuales de cada peaje en el Power BI"""
+    """
+    NUEVA FUNCIÓN: Buscar valores individuales de cada peaje en el Power BI (VERSIÓN SILENCIOSA)
+    """
     peajes = {}
     nombres_peajes = ['CHICORAL', 'COCORA', 'GUALANDAY']
     
     for nombre_peaje in nombres_peajes:
         try:
+            # Buscar el título del peaje
             titulo_selectors = [
                 f"//*[contains(text(), '{nombre_peaje}')]",
                 f"//*[contains(text(), '{nombre_peaje.title()}')]",
@@ -414,24 +476,32 @@ def find_peaje_values(driver):
                 peajes[nombre_peaje] = None
                 continue
             
-            # Estrategia 1
+            # Estrategia 1: Buscar "VALOR A PAGAR" cerca del título del peaje
             try:
+                # Buscar en el contenedor padre
                 container = titulo_element.find_element(By.XPATH, "./ancestor::*[position()<=3]")
+                
+                # Buscar "VALOR A PAGAR" dentro del contenedor
                 valor_pagar_elements = container.find_elements(By.XPATH, ".//*[contains(text(), 'VALOR A PAGAR') or contains(text(), 'Valor a pagar')]")
                 
                 if valor_pagar_elements:
+                    # Buscar el valor numérico cerca de "VALOR A PAGAR"
+                    valor_element = valor_pagar_elements[0]
+                    
+                    # Buscar valores numéricos en el mismo contenedor
                     numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), '$') or contains(text(), ',') or contains(text(), '.')]")
                     
                     for elem in numeric_elements:
                         texto = elem.text.strip()
                         if texto and any(char.isdigit() for char in texto):
+                            # Verificar que no sea el título
                             if 'VALOR A PAGAR' not in texto.upper() and 'COMERCIO' not in texto.upper():
                                 peajes[nombre_peaje] = texto
                                 break
             except:
                 pass
             
-            # Estrategia 2
+            # Estrategia 2: Buscar valores numéricos después del título
             if nombre_peaje not in peajes or peajes[nombre_peaje] is None:
                 try:
                     following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{nombre_peaje}')]/following::*")
@@ -439,13 +509,14 @@ def find_peaje_values(driver):
                     for elem in following_elements[:15]:
                         texto = elem.text.strip()
                         if texto and any(char.isdigit() for char in texto):
+                            # Verificar que sea un valor monetario válido
                             if len(texto) > 5 and len(texto) < 50:
                                 peajes[nombre_peaje] = texto
                                 break
                 except:
                     pass
             
-            # Estrategia 3
+            # Estrategia 3: Buscar en elementos hermanos
             if nombre_peaje not in peajes or peajes[nombre_peaje] is None:
                 try:
                     parent = titulo_element.find_element(By.XPATH, "./..")
@@ -466,167 +537,8 @@ def find_peaje_values(driver):
     
     return peajes
 
-def find_resumen_comercios_table(driver):
-    """Buscar tabla 'RESUMEN COMERCIOS' y extraer Cant Pasos por peaje"""
-    try:
-        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
-        
-        driver.save_screenshot("resumen_comercios_busqueda.png")
-        
-        page_text = driver.find_element(By.TAG_NAME, "body").text
-        lines = page_text.split('\n')
-        
-        pasos_data = {}
-        
-        st.info("📋 Analizando contenido de la página...")
-        
-        for i, line in enumerate(lines):
-            line_upper = line.strip().upper()
-            
-            if 'CHICORAL' in line_upper and 'CHICORAL' not in pasos_data:
-                for offset in range(4):
-                    if i + offset < len(lines):
-                        search_line = lines[i + offset]
-                        matches = re.findall(r'\b\d{1,2}\.?\d{3}\b|\b\d{3,4}\b', search_line)
-                        if matches:
-                            for match in matches:
-                                clean_num = match.replace('.', '')
-                                if clean_num.isdigit() and 100 <= int(clean_num) <= 100000:
-                                    pasos_data['CHICORAL'] = match
-                                    st.success(f"✅ CHICORAL Pasos: {match}")
-                                    break
-                            if 'CHICORAL' in pasos_data:
-                                break
-            
-            elif 'COCORA' in line_upper and 'COCORA' not in pasos_data:
-                for offset in range(4):
-                    if i + offset < len(lines):
-                        search_line = lines[i + offset]
-                        matches = re.findall(r'\b\d{1,2}\.?\d{3}\b|\b\d{3,4}\b', search_line)
-                        if matches:
-                            for match in matches:
-                                clean_num = match.replace('.', '')
-                                if clean_num.isdigit() and 100 <= int(clean_num) <= 100000:
-                                    pasos_data['COCORA'] = match
-                                    st.success(f"✅ COCORA Pasos: {match}")
-                                    break
-                            if 'COCORA' in pasos_data:
-                                break
-            
-            elif 'GUALANDAY' in line_upper and 'GUALANDAY' not in pasos_data:
-                for offset in range(4):
-                    if i + offset < len(lines):
-                        search_line = lines[i + offset]
-                        matches = re.findall(r'\b\d{1,2}\.?\d{3}\b|\b\d{3,4}\b', search_line)
-                        if matches:
-                            for match in matches:
-                                clean_num = match.replace('.', '')
-                                if clean_num.isdigit() and 100 <= int(clean_num) <= 100000:
-                                    pasos_data['GUALANDAY'] = match
-                                    st.success(f"✅ GUALANDAY Pasos: {match}")
-                                    break
-                            if 'GUALANDAY' in pasos_data:
-                                break
-        
-        # Estrategia 2: XPath
-        if len(pasos_data) < 3:
-            st.info("🔄 Intentando búsqueda con XPath...")
-            
-            peajes_to_find = [p for p in ['CHICORAL', 'COCORA', 'GUALANDAY'] if p not in pasos_data]
-            
-            for peaje in peajes_to_find:
-                try:
-                    xpath_peaje = f"//*[contains(text(), '{peaje}')]"
-                    elementos = driver.find_elements(By.XPATH, xpath_peaje)
-                    
-                    for elem in elementos:
-                        if elem.is_displayed():
-                            try:
-                                parent = elem.find_element(By.XPATH, "./..")
-                                parent_text = parent.text
-                                
-                                matches = re.findall(r'\b\d{1,2}\.?\d{3}\b|\b\d{3,4}\b', parent_text)
-                                
-                                for match in matches:
-                                    clean_num = match.replace('.', '')
-                                    if clean_num.isdigit() and 100 <= int(clean_num) <= 100000:
-                                        pasos_data[peaje] = match
-                                        st.success(f"✅ {peaje} Pasos (XPath): {match}")
-                                        break
-                                
-                                if peaje in pasos_data:
-                                    break
-                            except:
-                                continue
-                except:
-                    continue
-        
-        # Estrategia 3: Tablas
-        if len(pasos_data) < 3:
-            st.info("🔄 Buscando en elementos de tabla...")
-            
-            try:
-                tables = driver.find_elements(By.XPATH, "//table | //*[@role='grid'] | //*[contains(@class, 'pivotTable')]")
-                
-                for table in tables:
-                    if not table.is_displayed():
-                        continue
-                    
-                    table_text = table.text
-                    
-                    if any(word in table_text.upper() for word in ['RESUMEN', 'COMERCIOS', 'CHICORAL', 'COCORA', 'GUALANDAY']):
-                        st.info("📊 Tabla candidata encontrada")
-                        
-                        rows = table.find_elements(By.XPATH, ".//tr | .//*[@role='row']")
-                        
-                        for row in rows:
-                            row_text = row.text.strip()
-                            row_upper = row_text.upper()
-                            
-                            peajes_to_check = [p for p in ['CHICORAL', 'COCORA', 'GUALANDAY'] if p not in pasos_data]
-                            
-                            for peaje in peajes_to_check:
-                                if peaje in row_upper:
-                                    matches = re.findall(r'\b\d{1,2}\.?\d{3}\b|\b\d{3,4}\b', row_text)
-                                    
-                                    for match in matches:
-                                        clean_num = match.replace('.', '')
-                                        if clean_num.isdigit() and 100 <= int(clean_num) <= 100000:
-                                            pasos_data[peaje] = match
-                                            st.success(f"✅ {peaje} Pasos (tabla): {match}")
-                                            break
-            except Exception as e:
-                st.warning(f"⚠️ Error en búsqueda de tabla: {e}")
-        
-        # Calcular total
-        if pasos_data:
-            try:
-                total = 0
-                for peaje, valor in pasos_data.items():
-                    if peaje != 'TOTAL':
-                        clean_valor = str(valor).replace('.', '').replace(',', '')
-                        if clean_valor.isdigit():
-                            total += int(clean_valor)
-                
-                if total > 0:
-                    pasos_data['TOTAL'] = f"{total:,}".replace(",", ".")
-                    st.success(f"✅ Total Pasos calculado: {pasos_data['TOTAL']}")
-            except Exception as e:
-                st.warning(f"⚠️ Error calculando total: {e}")
-        
-        if pasos_data:
-            st.success(f"✅ Extracción exitosa: {len(pasos_data)} valores encontrados")
-            return pasos_data
-        else:
-            st.warning("⚠️ No se encontraron datos de pasos")
-            return None
-            
-    except Exception as e:
-        st.error(f"❌ Error en find_resumen_comercios_table: {str(e)}")
-        return None
-
 def extract_powerbi_data(fecha_objetivo):
-    """Función principal para extraer datos de Power BI"""
+    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES"""
     
     REPORT_URL = "https://app.powerbi.com/view?r=eyJrIjoiYTFmOWZkMDAtY2IwYi00OTg4LWIxZDctNGZmYmU0NTMxNGI1IiwidCI6ImY5MTdlZDFiLWI0MDMtNDljNS1iODBiLWJhYWUzY2UwMzc1YSJ9"
     
@@ -635,32 +547,43 @@ def extract_powerbi_data(fecha_objetivo):
         return None
     
     try:
+        # 1. Navegar al reporte
         with st.spinner("🌐 Conectando con Power BI..."):
             driver.get(REPORT_URL)
             time.sleep(10)
         
+        # 2. Tomar screenshot inicial
         driver.save_screenshot("powerbi_inicial.png")
         
+        # 3. Hacer clic en la conciliación específica
         if not click_conciliacion_date(driver, fecha_objetivo):
             return None
         
+        # 4. Esperar a que cargue la selección
         time.sleep(3)
         driver.save_screenshot("powerbi_despues_seleccion.png")
         
+        # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
+        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS" - CON MÁS DETALLE
+        st.info("🔍 Buscando tabla 'CANTIDAD PASOS'...")
         cantidad_pasos_texto = find_cantidad_pasos_card(driver)
         
-        pasos_por_peaje = find_resumen_comercios_table(driver)
+        # Si no se encuentra, intentar una búsqueda más agresiva
+        if not cantidad_pasos_texto or cantidad_pasos_texto == 'No encontrado':
+            st.warning("🔄 Intentando búsqueda alternativa para CANTIDAD PASOS...")
+            cantidad_pasos_texto = buscar_cantidad_pasos_alternativo(driver)
         
+        # 7. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
         valores_peajes = find_peaje_values(driver)
         
+        # 8. Tomar screenshot final
         driver.save_screenshot("powerbi_final.png")
         
         return {
             'valor_texto': valor_texto,
             'cantidad_pasos_texto': cantidad_pasos_texto or 'No encontrado',
-            'pasos_por_peaje': pasos_por_peaje or {},
             'valores_peajes': valores_peajes,
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
@@ -675,10 +598,39 @@ def extract_powerbi_data(fecha_objetivo):
     finally:
         driver.quit()
 
-# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL =====
+# Función alternativa de búsqueda
+def buscar_cantidad_pasos_alternativo(driver):
+    """Búsqueda alternativa y más agresiva para CANTIDAD PASOS"""
+    try:
+        # Buscar todos los elementos que contengan números
+        all_elements = driver.find_elements(By.XPATH, "//*[text()]")
+        
+        for elem in all_elements:
+            texto = elem.text.strip()
+            # Buscar patrones numéricos que parezcan cantidades (4,452, 4452, etc.)
+            if (texto and 
+                any(char.isdigit() for char in texto) and
+                3 <= len(texto) <= 10 and
+                not any(word in texto.upper() for word in ['$', 'TOTAL', 'VALOR', 'PAGAR', 'COMERCIO'])):
+                
+                # Verificar si es un número con formato de cantidad (puede tener comas)
+                clean_text = texto.replace(',', '').replace('.', '')
+                if clean_text.isdigit():
+                    num_value = int(clean_text)
+                    # Verificar si está en un rango razonable para cantidad de pasos
+                    if 100 <= num_value <= 999999:
+                        st.success(f"✅ Valor alternativo encontrado: {texto}")
+                        return texto
+        
+        return None
+    except Exception as e:
+        st.warning(f"⚠️ Búsqueda alternativa falló: {e}")
+        return None
+
+# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
 
 def extract_excel_values(uploaded_file):
-    """Extraer valores de las 3 hojas del Excel"""
+    """Extraer valores de las 3 hojas del Excel - VERSIÓN SILENCIOSA"""
     try:
         hojas = ['CHICORAL', 'GUALANDAY', 'COCORA']
         valores = {}
@@ -688,23 +640,28 @@ def extract_excel_values(uploaded_file):
             try:
                 df = pd.read_excel(uploaded_file, sheet_name=hoja, header=None)
                 
+                # Buscar el ÚLTIMO "Total" en la hoja
                 valor_encontrado = None
                 mejor_candidato = None
                 mejor_puntaje = -1
                 
+                # Buscar de ABAJO hacia ARRIBA
                 for i in range(len(df)-1, -1, -1):
                     fila = df.iloc[i]
                     
+                    # Buscar "Total" en esta fila
                     for j, celda in enumerate(fila):
                         if pd.notna(celda) and isinstance(celda, str) and 'TOTAL' in celda.upper().strip():
                             
+                            # Buscar valores monetarios en la MISMA fila
                             for k in range(len(fila)):
                                 posible_valor = fila.iloc[k]
                                 if pd.notna(posible_valor):
                                     valor_str = str(posible_valor)
                                     
+                                    # Calcular puntaje
                                     puntaje = 0
-                                    if ' in valor_str:
+                                    if '$' in valor_str:
                                         puntaje += 10
                                     if any(c.isdigit() for c in valor_str):
                                         puntaje += 5
@@ -713,6 +670,7 @@ def extract_excel_values(uploaded_file):
                                     if len(valor_str) > 6:
                                         puntaje += 2
                                     
+                                    # Excluir valores incorrectos
                                     if puntaje > 0 and len(valor_str) < 4:
                                         puntaje = 0
                                     if 'pag' in valor_str.lower():
@@ -722,9 +680,11 @@ def extract_excel_values(uploaded_file):
                                         mejor_puntaje = puntaje
                                         mejor_candidato = posible_valor
                 
+                # Usar el mejor candidato
                 if mejor_candidato is not None and mejor_puntaje >= 5:
                     valor_encontrado = mejor_candidato
                 else:
+                    # Búsqueda alternativa en últimas filas
                     for i in range(len(df)-1, max(len(df)-11, -1), -1):
                         fila = df.iloc[i]
                         
@@ -737,7 +697,7 @@ def extract_excel_values(uploaded_file):
                                             valor_str = str(valor_col)
                                             if (any(c.isdigit() for c in valor_str) and 
                                                 len(valor_str) > 4 and 
-                                                (' in valor_str or '.' in valor_str)):
+                                                ('$' in valor_str or '.' in valor_str)):
                                                 valor_encontrado = valor_col
                                                 break
                                 if valor_encontrado is not None:
@@ -745,11 +705,13 @@ def extract_excel_values(uploaded_file):
                         if valor_encontrado is not None:
                             break
                 
+                # Procesar el valor encontrado
                 if valor_encontrado is not None:
                     valor_original = str(valor_encontrado)
                     valor_limpio = re.sub(r'[^\d.,]', '', valor_original)
                     
                     try:
+                        # Para formato colombiano
                         if '.' in valor_limpio:
                             valor_limpio = valor_limpio.replace('.', '')
                         if ',' in valor_limpio:
@@ -781,30 +743,41 @@ def extract_excel_values(uploaded_file):
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, 0
 
-# ===== FUNCIONES DE COMPARACIÓN =====
+# ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS) =====
 
 def convert_currency_to_float(currency_string):
-    """Convierte string de moneda a float"""
+    """Convierte string de moneda a float - OPTIMIZADO"""
     try:
         if isinstance(currency_string, (int, float)):
             return float(currency_string)
             
         if isinstance(currency_string, str):
+            # Limpiar el string
             cleaned = currency_string.strip()
-            cleaned = cleaned.replace(', '').replace(' ', '')
             
+            # Remover símbolos de moneda y espacios
+            cleaned = cleaned.replace('$', '').replace(' ', '')
+            
+            # Manejar formato colombiano (puntos para miles, coma para decimales)
             if '.' in cleaned and ',' in cleaned:
+                # Formato: 1.000.000,00 -> quitar puntos, cambiar coma por punto
                 cleaned = cleaned.replace('.', '').replace(',', '.')
             elif '.' in cleaned and cleaned.count('.') > 1:
+                # Formato: 1.000.000 -> quitar todos los puntos
                 cleaned = cleaned.replace('.', '')
             elif ',' in cleaned:
+                # Formato: 1,000,000 o 1,000,000.00
                 if cleaned.count(',') == 2 and '.' in cleaned:
+                    # Formato internacional: 1,000,000.00
                     cleaned = cleaned.replace(',', '')
                 elif cleaned.count(',') == 1:
+                    # Podría ser decimal: 1000,50
                     cleaned = cleaned.replace(',', '.')
                 else:
+                    # Múltiples comas como separadores de miles
                     cleaned = cleaned.replace(',', '')
             
+            # Convertir a float
             return float(cleaned) if cleaned else 0.0
             
         return float(currency_string)
@@ -814,18 +787,21 @@ def convert_currency_to_float(currency_string):
         return 0.0
 
 def compare_values(valor_powerbi, valor_excel):
-    """Comparar valores de Power BI y Excel"""
+    """Comparar valores de Power BI y Excel - VERSIÓN MEJORADA"""
     try:
+        # Si es un diccionario (resultado de extracción)
         if isinstance(valor_powerbi, dict):
             valor_powerbi_texto = valor_powerbi.get('valor_texto', '')
             powerbi_numero = convert_currency_to_float(valor_powerbi_texto)
         else:
+            # Convertir texto a número
             valor_powerbi_texto = str(valor_powerbi)
             powerbi_numero = convert_currency_to_float(valor_powerbi)
             
         excel_numero = float(valor_excel)
         
-        tolerancia = 0.01
+        # Verificar coincidencia (con tolerancia pequeña por redondeos)
+        tolerancia = 0.01  # 1 centavo
         coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
         
         return powerbi_numero, excel_numero, valor_powerbi_texto, coinciden
@@ -835,11 +811,14 @@ def compare_values(valor_powerbi, valor_excel):
         return None, None, str(valor_powerbi), False
 
 def compare_peajes(valores_powerbi_peajes, valores_excel):
-    """Comparar valores individuales por peaje"""
+    """
+    NUEVA FUNCIÓN: Comparar valores individuales por peaje
+    """
     comparaciones = {}
     
     for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
         try:
+            # Valor de Power BI
             valor_powerbi_texto = valores_powerbi_peajes.get(peaje)
             
             if valor_powerbi_texto is None:
@@ -852,9 +831,11 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
                 }
                 continue
             
+            # Convertir valores
             powerbi_numero = convert_currency_to_float(valor_powerbi_texto)
             excel_numero = valores_excel.get(peaje, 0)
             
+            # Comparar con tolerancia
             tolerancia = 0.01
             coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
             diferencia = abs(powerbi_numero - excel_numero)
@@ -885,6 +866,7 @@ def main():
     st.title("💰 Validador Power BI - Conciliaciones APP GICA")
     st.markdown("---")
     
+    # Información del reporte
     st.sidebar.header("📋 Información del Reporte")
     st.sidebar.info("""
     **Objetivo:**
@@ -892,17 +874,18 @@ def main():
     - Extraer valores de CHICORAL, GUALANDAY, COCORA
     - Calcular total automáticamente
     - Comparar con Power BI (Total y por Peaje)
-    - Extraer cantidad de pasos por peaje
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.3 - Código Corregido
+    **Versión:** v2.1 - Con Cantidad de Pasos
     """)
     
+    # Estado del sistema
     st.sidebar.header("🛠️ Estado del Sistema")
     st.sidebar.success(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}")
     st.sidebar.info(f"✅ Pandas {pd.__version__}")
     st.sidebar.info(f"✅ Streamlit {st.__version__}")
     
+    # Cargar archivo Excel
     st.subheader("📁 Cargar Archivo Excel")
     uploaded_file = st.file_uploader(
         "Selecciona el archivo Excel con hojas CHICORAL, GUALANDAY, COCORA", 
@@ -910,8 +893,10 @@ def main():
     )
     
     if uploaded_file is not None:
+        # Extraer fecha del nombre del archivo (sin mostrar nada)
         fecha_desde_archivo = None
         try:
+            import re
             patron_fecha = r'(\d{4})-(\d{2})-(\d{2})'
             match = re.search(patron_fecha, uploaded_file.name)
             
@@ -921,10 +906,12 @@ def main():
         except:
             pass
         
+        # Extraer valores del Excel CON SPINNER
         with st.spinner("📊 Procesando archivo Excel..."):
             valores, total_general = extract_excel_values(uploaded_file)
         
         if total_general > 0:
+            # ========== MOSTRAR SOLO RESUMEN DE VALORES ==========
             st.markdown("### 📊 Valores Extraídos del Excel")
             
             col1, col2, col3, col4 = st.columns(4)
@@ -947,6 +934,8 @@ def main():
             
             st.markdown("---")
             
+            # ========== SECCIÓN 3: PARÁMETROS Y EJECUCIÓN ==========
+            # Usar la fecha del archivo si está disponible, sino usar fecha por defecto
             if fecha_desde_archivo:
                 st.info(f"🤖 **Extracción Automática Activada** | Fecha: {fecha_desde_archivo.strftime('%Y-%m-%d')}")
                 fecha_objetivo = fecha_desde_archivo.strftime("%Y-%m-%d")
@@ -965,6 +954,7 @@ def main():
                 else:
                     ejecutar_extraccion = False
             
+            # Ejecutar extracción si corresponde
             if ejecutar_extraccion:
                 with st.spinner("🌐 Extrayendo datos de Power BI... Esto puede tomar 1-2 minutos"):
                     resultados = extract_powerbi_data(fecha_objetivo)
@@ -972,13 +962,14 @@ def main():
                     if resultados and resultados.get('valor_texto'):
                         valor_powerbi_texto = resultados['valor_texto']
                         cantidad_pasos_texto = resultados.get('cantidad_pasos_texto', 'No encontrado')
-                        pasos_por_peaje = resultados.get('pasos_por_peaje', {})
                         valores_peajes_powerbi = resultados.get('valores_peajes', {})
                         
                         st.markdown("---")
                         
+                        # ========== SECCIÓN 4: RESULTADOS - VALORES POWER BI ==========
                         st.markdown("### 📊 Valores Extraídos de Power BI")
                         
+                        # Mostrar VALOR A PAGAR A COMERCIO y CANTIDAD PASOS
                         col1, col2 = st.columns(2)
                         
                         with col1:
@@ -987,33 +978,12 @@ def main():
                         with col2:
                             st.metric("👣 CANTIDAD DE PASOS BI", cantidad_pasos_texto)
                         
-                        if pasos_por_peaje:
-                            st.markdown("#### 👣 Cantidad de Pasos por Peaje (RESUMEN COMERCIOS)")
-                            
-                            tabla_pasos_data = []
-                            for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-                                if peaje in pasos_por_peaje:
-                                    tabla_pasos_data.append({
-                                        'Peaje': peaje,
-                                        'Cantidad de Pasos': pasos_por_peaje[peaje]
-                                    })
-                            
-                            if 'TOTAL' in pasos_por_peaje:
-                                tabla_pasos_data.append({
-                                    'Peaje': 'TOTAL',
-                                    'Cantidad de Pasos': pasos_por_peaje['TOTAL']
-                                })
-                            
-                            if tabla_pasos_data:
-                                df_pasos = pd.DataFrame(tabla_pasos_data)
-                                st.dataframe(df_pasos, use_container_width=True, hide_index=True)
-                        else:
-                            st.warning("⚠️ No se pudieron extraer los pasos por peaje de la tabla 'RESUMEN COMERCIOS'")
-                        
                         st.markdown("---")
                         
+                        # ========== SECCIÓN 5: RESULTADOS - COMPARACIÓN TOTAL ==========
                         st.markdown("### 💰 Validación: Total General")
                         
+                        # Comparar valores totales
                         powerbi_numero, excel_numero, valor_formateado, coinciden = compare_values(
                             resultados, 
                             total_general
@@ -1038,10 +1008,13 @@ def main():
                         
                         st.markdown("---")
                         
+                        # ========== SECCIÓN 6: RESULTADOS - COMPARACIÓN POR PEAJE ==========
                         st.markdown("### 🏢 Validación: Por Peaje")
                         
+                        # Comparar valores por peaje
                         comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores)
                         
+                        # Crear tabla resumen compacta
                         tabla_data = []
                         todos_coinciden = True
                         
@@ -1067,6 +1040,7 @@ def main():
                         
                         st.markdown("---")
                         
+                        # ========== SECCIÓN 7: RESUMEN FINAL ==========
                         st.markdown("### 📋 Resultado Final")
                         
                         if coinciden and todos_coinciden:
@@ -1079,7 +1053,9 @@ def main():
                         else:
                             st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en total y peajes")
                         
+                        # Botón para ver detalles adicionales
                         with st.expander("🔍 Ver Detalles Completos y Capturas"):
+                            # Tabla detallada
                             st.markdown("#### 📊 Tabla Detallada")
                             resumen_data = []
                             
@@ -1092,6 +1068,7 @@ def main():
                                 'Dif. %': f"{abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%" if excel_numero > 0 else "N/A"
                             })
                             
+                            # Agregar CANTIDAD DE PASOS a la tabla detallada
                             resumen_data.append({
                                 'Concepto': 'CANTIDAD DE PASOS',
                                 'Power BI': cantidad_pasos_texto,
@@ -1100,28 +1077,6 @@ def main():
                                 'Diferencia': 'N/A',
                                 'Dif. %': 'N/A'
                             })
-                            
-                            if pasos_por_peaje:
-                                for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-                                    if peaje in pasos_por_peaje:
-                                        resumen_data.append({
-                                            'Concepto': f'PASOS {peaje}',
-                                            'Power BI': pasos_por_peaje[peaje],
-                                            'Excel': 'N/A',
-                                            'Estado': 'ℹ️ Solo Power BI',
-                                            'Diferencia': 'N/A',
-                                            'Dif. %': 'N/A'
-                                        })
-                                
-                                if 'TOTAL' in pasos_por_peaje:
-                                    resumen_data.append({
-                                        'Concepto': 'TOTAL PASOS',
-                                        'Power BI': pasos_por_peaje['TOTAL'],
-                                        'Excel': 'N/A',
-                                        'Estado': 'ℹ️ Solo Power BI',
-                                        'Diferencia': 'N/A',
-                                        'Dif. %': 'N/A'
-                                    })
                             
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                                 comp = comparaciones_peajes[peaje]
@@ -1138,6 +1093,7 @@ def main():
                             df_resumen = pd.DataFrame(resumen_data)
                             st.dataframe(df_resumen, use_container_width=True, hide_index=True)
                             
+                            # Screenshots
                             st.markdown("#### 📸 Capturas del Proceso")
                             col1, col2, col3 = st.columns(3)
                             screenshots = resultados.get('screenshots', {})
@@ -1170,6 +1126,7 @@ def main():
     else:
         st.info("📁 Por favor, carga un archivo Excel para comenzar la validación")
 
+    # Información de ayuda
     st.markdown("---")
     with st.expander("ℹ️ Instrucciones de Uso"):
         st.markdown("""
@@ -1179,17 +1136,28 @@ def main():
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características (v2.3):**
+        **Características NUEVAS (v2.1):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
         - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
-        - ✅ **Pasos por Peaje**: Extrae cantidad de pasos de tabla "RESUMEN COMERCIOS"
-        - ✅ **Comparación por Peaje**: Valida valores individuales
+        - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
+        - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
+        
+        **Características Mantenidas:**
+        - ✅ **Power BI Funcional**: Usa la extracción probada que funciona
+        - ✅ **Búsqueda inteligente**: Múltiples estrategias para encontrar valores
+        - ✅ **Conversión de moneda**: Maneja formatos colombianos e internacionales
         - 📸 **Capturas del proceso**: Para verificación y debugging
+        
+        **Notas:**
+        - La extracción busca el total, cantidad de pasos y los valores individuales por peaje
+        - Los valores deben estar claramente identificados en el Power BI
+        - Las fechas deben coincidir exactamente con las del reporte Power BI
         """)
 
 if __name__ == "__main__":
     main()
-    
+
+    # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.1</div>', unsafe_allow_html=True)
