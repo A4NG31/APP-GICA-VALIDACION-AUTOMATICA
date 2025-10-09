@@ -266,47 +266,8 @@ def find_cantidad_pasos_card(driver):
                 texto = elem.text.strip()
                 if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
                     # Verificar que sea un número (con comas o puntos)
-                    if len(texto) < 20 and not '
-    """Buscar la tarjeta/table 'VALOR A PAGAR A COMERCIO' en la parte superior derecha"""
-    try:
-        # Buscar por diferentes patrones del título
-        titulo_selectors = [
-            "//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]",
-            "//*[contains(text(), 'Valor a pagar a comercio')]",
-            "//*[contains(text(), 'VALOR A PAGAR') and contains(text(), 'COMERCIO')]",
-            "//*[contains(text(), 'Valor A Pagar') and contains(text(), 'Comercio')]",
-            "//*[contains(text(), 'PAGAR A COMERCIO')]",
-        ]
-        
-        titulo_element = None
-        for selector in titulo_selectors:
-            try:
-                elementos = driver.find_elements(By.XPATH, selector)
-                for elemento in elementos:
-                    if elemento.is_displayed():
-                        texto = elemento.text.strip()
-                        if "PAGAR" in texto.upper() and "COMERCIO" in texto.upper():
-                            titulo_element = elemento
-                            break
-                if titulo_element:
-                    break
-            except:
-                continue
-        
-        if not titulo_element:
-            st.error("❌ No se encontró 'VALOR A PAGAR A COMERCIO' en el reporte")
-            return None
-        
-        # Buscar el valor numérico debajo del título
-        # Estrategia 1: Buscar en el mismo contenedor
-        try:
-            container = titulo_element.find_element(By.XPATH, "./..")
-            numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), '$') or contains(text(), ',') or contains(text(), '.')]")
-            
-            for elem in numeric_elements:
-                texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
-                    return texto
+                    if len(texto) < 20 and not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                        return texto
         except:
             pass
         
@@ -318,27 +279,28 @@ def find_cantidad_pasos_card(driver):
             for sibling in siblings:
                 if sibling != titulo_element:
                     texto = sibling.text.strip()
-                    if texto and any(char.isdigit() for char in texto):
-                        return texto
+                    if texto and any(char.isdigit() for char in texto) and len(texto) < 20:
+                        if not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                            return texto
         except:
             pass
         
         # Estrategia 3: Buscar debajo del título
         try:
-            following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]/following::*")
+            following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), 'CANTIDAD PASOS')]/following::*")
             
             for elem in following_elements[:10]:
                 texto = elem.text.strip()
                 if texto and any(char.isdigit() for char in texto) and len(texto) < 50:
-                    return texto
+                    if not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                        return texto
         except:
             pass
         
-        st.error("❌ No se pudo encontrar el valor numérico")
         return None
         
     except Exception as e:
-        st.error(f"❌ Error buscando valor: {str(e)}")
+        st.error(f"❌ Error buscando cantidad de pasos: {str(e)}")
         return None
 
 def find_peaje_values(driver):
