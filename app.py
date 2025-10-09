@@ -1,8 +1,6 @@
 import os
 import sys
 
-
-
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
@@ -537,8 +535,142 @@ def find_peaje_values(driver):
     
     return peajes
 
+def find_resumen_comercios_pasos(driver):
+    """
+    NUEVA FUNCIÓN: Buscar la tabla "RESUMEN COMERCIOS" y extraer la columna "Cant Pasos"
+    Retorna un diccionario con los pasos por peaje y el total
+    """
+    try:
+        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
+        
+        # Buscar la tabla por su título
+        titulo_selectors = [
+            "//*[contains(text(), 'RESUMEN COMERCIOS')]",
+            "//*[contains(text(), 'Resumen Comercios')]",
+            "//*[contains(text(), 'RESUMEN') and contains(text(), 'COMERCIOS')]",
+        ]
+        
+        titulo_element = None
+        for selector in titulo_selectors:
+            try:
+                elementos = driver.find_elements(By.XPATH, selector)
+                for elemento in elementos:
+                    if elemento.is_displayed():
+                        titulo_element = elemento
+                        st.success("✅ Tabla 'RESUMEN COMERCIOS' encontrada")
+                        break
+                if titulo_element:
+                    break
+            except:
+                continue
+        
+        if not titulo_element:
+            st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
+            return None
+        
+        # Buscar la tabla completa
+        try:
+            # Buscar la tabla más cercana al título
+            tabla = titulo_element.find_element(By.XPATH, "./ancestor::div[contains(@class, 'tableEx')] | ./following::div[contains(@class, 'tableEx')][1] | ./ancestor::div[contains(@style, 'table')] | ./following::table[1]")
+            
+            # Extraer todas las filas de la tabla
+            filas = tabla.find_elements(By.XPATH, ".//tr | .//div[contains(@class, 'row')]")
+            
+            datos_pasos = {}
+            encabezado_encontrado = False
+            columna_pasos_idx = -1
+            
+            for fila in filas:
+                celdas = fila.find_elements(By.XPATH, ".//td | .//th | .//div[contains(@class, 'cell')]")
+                textos_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
+                
+                if not textos_celdas:
+                    continue
+                
+                # Buscar el encabezado que contiene "Cant Pasos"
+                if not encabezado_encontrado and any('CANT PASOS' in texto.upper() for texto in textos_celdas):
+                    encabezado_encontrado = True
+                    # Encontrar el índice de la columna "Cant Pasos"
+                    for idx, texto in enumerate(textos_celdas):
+                        if 'CANT PASOS' in texto.upper():
+                            columna_pasos_idx = idx
+                            break
+                    continue
+                
+                # Si ya encontramos el encabezado, buscar datos
+                if encabezado_encontrado and columna_pasos_idx >= 0 and len(textos_celdas) > columna_pasos_idx:
+                    # Buscar el nombre del peaje en la primera columna
+                    primer_texto = textos_celdas[0].upper()
+                    valor_pasos = textos_celdas[columna_pasos_idx]
+                    
+                    # Identificar el peaje
+                    if 'CHICORAL' in primer_texto:
+                        datos_pasos['CHICORAL'] = valor_pasos
+                    elif 'COCORA' in primer_texto:
+                        datos_pasos['COCORA'] = valor_pasos
+                    elif 'GUALANDAY' in primer_texto:
+                        datos_pasos['GUALANDAY'] = valor_pasos
+                    elif 'TOTAL' in primer_texto:
+                        datos_pasos['TOTAL'] = valor_pasos
+            
+            st.success(f"✅ Datos de pasos extraídos: {datos_pasos}")
+            return datos_pasos
+            
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo extraer datos estructurados de la tabla: {e}")
+            
+            # Estrategia alternativa: buscar cerca del título
+            try:
+                container = titulo_element.find_element(By.XPATH, "./ancestor::div[position()<=3]")
+                all_text = container.text
+                
+                # Buscar patrones en el texto
+                lineas = all_text.split('\n')
+                datos_pasos = {}
+                
+                for i, linea in enumerate(lineas):
+                    linea_upper = linea.upper()
+                    if 'CHICORAL' in linea_upper and any(char.isdigit() for char in linea):
+                        # Buscar el número de pasos en esta línea o la siguiente
+                        for j in range(i, min(i+3, len(lineas))):
+                            texto = lineas[j]
+                            if any(char.isdigit() for char in texto) and len(texto) < 10:
+                                datos_pasos['CHICORAL'] = texto.strip()
+                                break
+                    elif 'COCORA' in linea_upper and any(char.isdigit() for char in linea):
+                        for j in range(i, min(i+3, len(lineas))):
+                            texto = lineas[j]
+                            if any(char.isdigit() for char in texto) and len(texto) < 10:
+                                datos_pasos['COCORA'] = texto.strip()
+                                break
+                    elif 'GUALANDAY' in linea_upper and any(char.isdigit() for char in linea):
+                        for j in range(i, min(i+3, len(lineas))):
+                            texto = lineas[j]
+                            if any(char.isdigit() for char in texto) and len(texto) < 10:
+                                datos_pasos['GUALANDAY'] = texto.strip()
+                                break
+                    elif 'TOTAL' in linea_upper and any(char.isdigit() for char in linea):
+                        for j in range(i, min(i+3, len(lineas))):
+                            texto = lineas[j]
+                            if any(char.isdigit() for char in texto) and len(texto) < 10:
+                                datos_pasos['TOTAL'] = texto.strip()
+                                break
+                
+                if datos_pasos:
+                    st.success(f"✅ Datos de pasos extraídos (alternativo): {datos_pasos}")
+                    return datos_pasos
+                    
+            except Exception as e2:
+                st.warning(f"⚠️ Estrategia alternativa también falló: {e2}")
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"❌ Error buscando resumen de comercios: {str(e)}")
+        return None
+
 def extract_powerbi_data(fecha_objetivo):
-    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES"""
+    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES Y PASOS"""
     
     REPORT_URL = "https://app.powerbi.com/view?r=eyJrIjoiYTFmOWZkMDAtY2IwYi00OTg4LWIxZDctNGZmYmU0NTMxNGI1IiwidCI6ImY5MTdlZDFiLWI0MDMtNDljNS1iODBiLWJhYWUzY2UwMzc1YSJ9"
     
@@ -566,7 +698,7 @@ def extract_powerbi_data(fecha_objetivo):
         # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS" - CON MÁS DETALLE
+        # 6. Buscar "CANTIDAD PASOS" 
         st.info("🔍 Buscando tabla 'CANTIDAD PASOS'...")
         cantidad_pasos_texto = find_cantidad_pasos_card(driver)
         
@@ -575,15 +707,19 @@ def extract_powerbi_data(fecha_objetivo):
             st.warning("🔄 Intentando búsqueda alternativa para CANTIDAD PASOS...")
             cantidad_pasos_texto = buscar_cantidad_pasos_alternativo(driver)
         
-        # 7. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
+        # 7. NUEVA FUNCIONALIDAD: Buscar tabla "RESUMEN COMERCIOS" para pasos por peaje
+        resumen_pasos = find_resumen_comercios_pasos(driver)
+        
+        # 8. Extraer valores por peaje (SIN MENSAJES)
         valores_peajes = find_peaje_values(driver)
         
-        # 8. Tomar screenshot final
+        # 9. Tomar screenshot final
         driver.save_screenshot("powerbi_final.png")
         
         return {
             'valor_texto': valor_texto,
             'cantidad_pasos_texto': cantidad_pasos_texto or 'No encontrado',
+            'resumen_pasos': resumen_pasos or {},
             'valores_peajes': valores_peajes,
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
@@ -873,10 +1009,10 @@ def main():
     - Cargar archivo Excel con 3 hojas
     - Extraer valores de CHICORAL, GUALANDAY, COCORA
     - Calcular total automáticamente
-    - Comparar con Power BI (Total y por Peaje)
+    - Comparar con Power BI (Total, Pasos y por Peaje)
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.1 - Con Cantidad de Pasos
+    **Versión:** v2.2 - Con Cantidad de Pasos por Peaje
     """)
     
     # Estado del sistema
@@ -962,6 +1098,7 @@ def main():
                     if resultados and resultados.get('valor_texto'):
                         valor_powerbi_texto = resultados['valor_texto']
                         cantidad_pasos_texto = resultados.get('cantidad_pasos_texto', 'No encontrado')
+                        resumen_pasos = resultados.get('resumen_pasos', {})
                         valores_peajes_powerbi = resultados.get('valores_peajes', {})
                         
                         st.markdown("---")
@@ -977,6 +1114,29 @@ def main():
                         
                         with col2:
                             st.metric("👣 CANTIDAD DE PASOS BI", cantidad_pasos_texto)
+                        
+                        # ========== NUEVA SECCIÓN: CANTIDAD DE PASOS POR PEAJE ==========
+                        if resumen_pasos:
+                            st.markdown("### 👣 Cantidad de Pasos por Peaje (RESUMEN COMERCIOS)")
+                            
+                            # Crear métricas para los pasos por peaje
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                pasos_chicoral = resumen_pasos.get('CHICORAL', 'N/A')
+                                st.metric("CHICORAL - Pasos", pasos_chicoral)
+                            
+                            with col2:
+                                pasos_cocora = resumen_pasos.get('COCORA', 'N/A')
+                                st.metric("COCORA - Pasos", pasos_cocora)
+                            
+                            with col3:
+                                pasos_gualanday = resumen_pasos.get('GUALANDAY', 'N/A')
+                                st.metric("GUALANDAY - Pasos", pasos_gualanday)
+                            
+                            with col4:
+                                pasos_total = resumen_pasos.get('TOTAL', 'N/A')
+                                st.metric("TOTAL - Pasos", pasos_total)
                         
                         st.markdown("---")
                         
@@ -1078,6 +1238,29 @@ def main():
                                 'Dif. %': 'N/A'
                             })
                             
+                            # Agregar PASOS POR PEAJE a la tabla detallada
+                            if resumen_pasos:
+                                for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+                                    pasos = resumen_pasos.get(peaje, 'N/A')
+                                    resumen_data.append({
+                                        'Concepto': f'{peaje} - PASOS',
+                                        'Power BI': pasos,
+                                        'Excel': 'N/A',
+                                        'Estado': 'ℹ️ Solo Power BI',
+                                        'Diferencia': 'N/A',
+                                        'Dif. %': 'N/A'
+                                    })
+                                
+                                if 'TOTAL' in resumen_pasos:
+                                    resumen_data.append({
+                                        'Concepto': 'TOTAL - PASOS',
+                                        'Power BI': resumen_pasos['TOTAL'],
+                                        'Excel': 'N/A',
+                                        'Estado': 'ℹ️ Solo Power BI',
+                                        'Diferencia': 'N/A',
+                                        'Dif. %': 'N/A'
+                                    })
+                            
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                                 comp = comparaciones_peajes[peaje]
                                 excel_val = comp['excel_numero']
@@ -1136,9 +1319,10 @@ def main():
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características NUEVAS (v2.1):**
+        **Características NUEVAS (v2.2):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
         - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
+        - ✅ **Pasos por Peaje**: Extrae de la tabla "RESUMEN COMERCIOS" la columna "Cant Pasos"
         - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
         - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
@@ -1160,4 +1344,4 @@ if __name__ == "__main__":
 
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.2</div>', unsafe_allow_html=True)
