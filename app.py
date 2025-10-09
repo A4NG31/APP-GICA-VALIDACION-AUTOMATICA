@@ -762,7 +762,7 @@ def buscar_cantidad_pasos_alternativo(driver):
 # ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MEJORADAS) =====
 
 def extract_excel_values(uploaded_file):
-    """Extraer valores monetarios Y cantidad de pasos de las 3 hojas del Excel - VERSIÓN ROBUSTA"""
+    """Extraer valores monetarios Y cantidad de pasos de las 3 hojas del Excel - VERSIÓN MEJORADA CON DIAGNÓSTICO"""
     try:
         hojas = ['CHICORAL', 'GUALANDAY', 'COCORA']
         valores = {}
@@ -775,95 +775,45 @@ def extract_excel_values(uploaded_file):
                 # Leer el archivo Excel
                 df = pd.read_excel(uploaded_file, sheet_name=hoja, header=None)
                 
-                st.info(f"🔍 Procesando hoja: {hoja} ({len(df)} filas, {len(df.columns)} columnas)")
+                st.info(f"🔍 **ANALIZANDO HOJA: {hoja}** - Dimensiones: {len(df)} filas × {len(df.columns)} columnas")
+                
+                # DIAGNÓSTICO COMPLETO DE LA HOJA
+                if hoja == 'GUALANDAY':
+                    st.warning(f"🚨 **MODO DIAGNÓSTICO ACTIVADO PARA {hoja}**")
+                    diagnosticar_hoja(df, hoja)
                 
                 # Variables para almacenar resultados
                 valor_encontrado = None
                 pasos_encontrados = None
                 
-                # ESTRATEGIA 1: Buscar en las últimas filas (más común)
-                st.write(f"📋 **Estrategia 1**: Buscando en últimas filas de {hoja}")
-                for i in range(len(df)-1, max(len(df)-20, -1), -1):
-                    fila = df.iloc[i]
-                    
-                    for j, celda in enumerate(fila):
-                        if pd.notna(celda):
-                            texto = str(celda).strip()
-                            
-                            # BUSCAR VALOR MONETARIO
-                            if valor_encontrado is None:
-                                if (any(char.isdigit() for char in texto) and 
-                                    len(texto) > 3 and  # Valores monetarios son más largos
-                                    ('$' in texto or ',' in texto or '.' in texto or 'TOTAL' in texto.upper())):
-                                    
-                                    valor_limpio = clean_currency_value(texto)
-                                    if valor_limpio and valor_limpio >= 1000:
-                                        valor_encontrado = valor_limpio
-                                        st.success(f"💰 Valor {hoja}: {texto} -> ${valor_limpio:,.0f}")
-                            
-                            # BUSCAR CANTIDAD DE PASOS
-                            if pasos_encontrados is None:
-                                if (any(char.isdigit() for char in texto) and 
-                                    1 <= len(texto) <= 10 and  # Pasos son números más cortos
-                                    not any(word in texto.upper() for word in ['$', 'TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'PASOS'])):
-                                    
-                                    pasos_limpio = clean_step_value(texto)
-                                    if pasos_limpio and 1 <= pasos_limpio <= 999999:
-                                        pasos_encontrados = pasos_limpio
-                                        st.success(f"👣 Pasos {hoja}: {texto} -> {pasos_limpio:,}")
-                    
-                    # Si encontramos ambos, salir del loop
-                    if valor_encontrado is not None and pasos_encontrados is not None:
-                        break
+                # ESTRATEGIA ESPECIAL PARA GUALANDAY
+                if hoja == 'GUALANDAY':
+                    valor_encontrado, pasos_encontrados = buscar_gualanday_especial(df, hoja)
+                else:
+                    # ESTRATEGIA NORMAL PARA LAS OTRAS HOJAS
+                    valor_encontrado, pasos_encontrados = buscar_valores_estandar(df, hoja)
                 
-                # ESTRATEGIA 2: Buscar por patrones específicos si no se encontró
-                if valor_encontrado is None:
-                    st.write(f"🔄 **Estrategia 2**: Búsqueda por patrones en {hoja}")
-                    valor_encontrado = find_value_by_patterns(df, hoja, 'valor')
+                # ESTRATEGIA DE RESPUESTA SI FALLA LA BÚSQUEDA ESPECIAL
+                if hoja == 'GUALANDAY' and (valor_encontrado is None or pasos_encontrados is None):
+                    st.warning(f"🔄 **Estrategia especial falló para {hoja}, usando búsqueda avanzada...**")
+                    valor_encontrado, pasos_encontrados = busqueda_avanzada_gualanday(df, hoja)
                 
-                if pasos_encontrados is None:
-                    pasos_encontrados = find_value_by_patterns(df, hoja, 'pasos')
-                
-                # ESTRATEGIA 3: Buscar en toda la hoja si aún no se encuentra
-                if valor_encontrado is None:
-                    st.write(f"🔎 **Estrategia 3**: Búsqueda exhaustiva en {hoja}")
-                    valor_encontrado = exhaustive_value_search(df, hoja, 'valor')
-                
-                if pasos_encontrados is None:
-                    pasos_encontrados = exhaustive_value_search(df, hoja, 'pasos')
-                
-                # ESTRATEGIA 4: Buscar en celdas con formato de moneda
-                if valor_encontrado is None:
-                    valor_encontrado = find_currency_formatted_cells(df, hoja)
-                
-                # ASIGNAR VALORES FINALES
+                # ASIGNAR VALORES FINALES CON VERIFICACIÓN
                 if valor_encontrado is not None:
                     valores[hoja] = valor_encontrado
                     total_general += valor_encontrado
+                    st.success(f"✅ **VALOR CONFIRMADO {hoja}**: ${valor_encontrado:,.0f}")
                 else:
-                    # Último recurso: buscar cualquier número grande
-                    backup_valor = find_backup_value(df, hoja)
-                    if backup_valor:
-                        valores[hoja] = backup_valor
-                        total_general += backup_valor
-                        st.warning(f"⚠️ Valor {hoja} (backup): ${backup_valor:,.0f}")
-                    else:
-                        valores[hoja] = 0
-                        st.error(f"❌ No se encontró valor monetario para {hoja}")
+                    st.error(f"❌ **VALOR NO ENCONTRADO para {hoja}**")
+                    valores[hoja] = 0
                 
                 if pasos_encontrados is not None:
                     pasos[hoja] = pasos_encontrados
                     total_pasos += pasos_encontrados
+                    st.success(f"✅ **PASOS CONFIRMADOS {hoja}**: {pasos_encontrados:,}")
                 else:
-                    # Último recurso: buscar cualquier número de pasos razonable
-                    backup_pasos = find_backup_steps(df, hoja)
-                    if backup_pasos:
-                        pasos[hoja] = backup_pasos
-                        total_pasos += backup_pasos
-                        st.warning(f"⚠️ Pasos {hoja} (backup): {backup_pasos:,}")
-                    else:
-                        pasos[hoja] = 0
-                        st.error(f"❌ No se encontró cantidad de pasos para {hoja}")
+                    st.error(f"❌ **PASOS NO ENCONTRADOS para {hoja}**")
+                    pasos[hoja] = 0
                         
             except Exception as e:
                 st.error(f"❌ Error procesando hoja {hoja}: {str(e)}")
@@ -871,13 +821,363 @@ def extract_excel_values(uploaded_file):
                 pasos[hoja] = 0
         
         # Mostrar resumen final
-        st.success(f"📊 Resumen extracción - Valores: ${total_general:,.0f}, Pasos: {total_pasos:,}")
+        st.success(f"📊 **RESUMEN FINAL** - Valores: ${total_general:,.0f}, Pasos: {total_pasos:,}")
         
         return valores, total_general, pasos, total_pasos
         
     except Exception as e:
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, 0, {}, 0
+
+def diagnosticar_hoja(df, hoja_nombre):
+    """Función de diagnóstico para entender la estructura del Excel"""
+    try:
+        st.markdown(f"### 🔬 DIAGNÓSTICO DETALLADO: {hoja_nombre}")
+        
+        # Mostrar dimensiones
+        st.write(f"**Dimensiones**: {len(df)} filas × {len(df.columns)} columnas")
+        
+        # Mostrar primeras 10 filas
+        st.write("**Primeras 10 filas:**")
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        # Mostrar últimas 10 filas (donde suelen estar los totales)
+        st.write("**Últimas 10 filas (posibles totales):**")
+        st.dataframe(df.tail(10), use_container_width=True)
+        
+        # Buscar patrones específicos
+        st.write("**Búsqueda de patrones clave:**")
+        
+        # Buscar "TOTAL", "VALOR", "PAGAR", etc.
+        patrones_valor = ['TOTAL', 'VALOR', 'PAGAR', 'MONTO', 'IMPORTE', 'SUMA']
+        patrones_pasos = ['PASOS', 'CANTIDAD', 'CONTEO', 'TOTAL', 'COUNT']
+        
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    texto = str(celda).strip().upper()
+                    
+                    # Buscar patrones de valor
+                    for patron in patrones_valor:
+                        if patron in texto and len(texto) < 50:
+                            st.info(f"📌 **Patrón VALOR encontrado**: Fila {i+1}, Col {j+1} → '{texto}'")
+                            # Mostrar contexto (misma fila)
+                            contexto = df.iloc[i, max(0, j-2):min(len(df.columns), j+5)].values
+                            st.write(f"   Contexto: {[str(x) for x in contexto if pd.notna(x)]}")
+                    
+                    # Buscar patrones de pasos
+                    for patron in patrones_pasos:
+                        if patron in texto and 'PASO' in texto and len(texto) < 50:
+                            st.info(f"📌 **Patrón PASOS encontrado**: Fila {i+1}, Col {j+1} → '{texto}'")
+                            # Mostrar contexto (misma fila)
+                            contexto = df.iloc[i, max(0, j-2):min(len(df.columns), j+5)].values
+                            st.write(f"   Contexto: {[str(x) for x in contexto if pd.notna(x)]}")
+        
+        # Buscar números grandes (posibles valores)
+        st.write("**Números grandes encontrados (posibles valores):**")
+        grandes_numeros = []
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    valor = clean_currency_value(celda)
+                    if valor and valor > 10000:  # Solo números significativos
+                        grandes_numeros.append({
+                            'fila': i+1,
+                            'columna': j+1,
+                            'valor_original': celda,
+                            'valor_convertido': valor
+                        })
+        
+        if grandes_numeros:
+            for num in sorted(grandes_numeros, key=lambda x: x['valor_convertido'], reverse=True)[:10]:
+                st.write(f"💰 Fila {num['fila']}, Col {num['columna']}: {num['valor_original']} → ${num['valor_convertido']:,.0f}")
+        
+        # Buscar números de pasos
+        st.write("**Números de pasos encontrados:**")
+        numeros_pasos = []
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    pasos = clean_step_value(celda)
+                    if pasos and 100 <= pasos <= 99999:
+                        numeros_pasos.append({
+                            'fila': i+1,
+                            'columna': j+1,
+                            'valor_original': celda,
+                            'pasos_convertido': pasos
+                        })
+        
+        if numeros_pasos:
+            for paso in sorted(numeros_pasos, key=lambda x: x['pasos_convertido'], reverse=True)[:10]:
+                st.write(f"👣 Fila {paso['fila']}, Col {paso['columna']}: {paso['valor_original']} → {paso['pasos_convertido']:,}")
+                        
+    except Exception as e:
+        st.error(f"Error en diagnóstico: {e}")
+
+def buscar_gualanday_especial(df, hoja):
+    """Estrategia especializada para GUALANDAY"""
+    valor_encontrado = None
+    pasos_encontrados = None
+    
+    st.info("🎯 **EJECUTANDO ESTRATEGIA ESPECIAL PARA GUALANDAY**")
+    
+    # ESTRATEGIA 1: Buscar en las últimas 15 filas, últimas 10 columnas
+    st.write("**Estrategia 1**: Buscando en esquina inferior derecha...")
+    for i in range(len(df)-1, max(len(df)-15, -1), -1):
+        for j in range(len(df.columns)-1, max(len(df.columns)-10, -1), -1):
+            celda = df.iloc[i, j]
+            if pd.notna(celda):
+                texto = str(celda).strip()
+                
+                # Buscar valor
+                if valor_encontrado is None:
+                    valor = clean_currency_value(texto)
+                    if valor and valor >= 100000:  # GUALANDAY suele tener valores altos
+                        valor_encontrado = valor
+                        st.success(f"💰 Valor encontrado (estrategia 1): ${valor:,.0f} en F{i+1}, C{j+1}")
+                
+                # Buscar pasos
+                if pasos_encontrados is None:
+                    pasos = clean_step_value(texto)
+                    if pasos and 1000 <= pasos <= 50000:  # Rango razonable para GUALANDAY
+                        pasos_encontrados = pasos
+                        st.success(f"👣 Pasos encontrados (estrategia 1): {pasos:,} en F{i+1}, C{j+1}")
+    
+    # ESTRATEGIA 2: Buscar filas que contengan "TOTAL" o similar
+    if valor_encontrado is None or pasos_encontrados is None:
+        st.write("**Estrategia 2**: Buscando por filas con 'TOTAL'...")
+        for i in range(len(df)):
+            fila_texto = ' '.join([str(x) for x in df.iloc[i].values if pd.notna(x)])
+            if any(palabra in fila_texto.upper() for palabra in ['TOTAL', 'VALOR', 'PAGAR', 'GUALANDAY']):
+                st.info(f"📄 Filas con patrones encontrada: Fila {i+1} → {fila_texto[:100]}...")
+                
+                # Buscar valores en esta fila
+                for j in range(len(df.columns)):
+                    celda = df.iloc[i, j]
+                    if pd.notna(celda):
+                        texto = str(celda).strip()
+                        
+                        if valor_encontrado is None:
+                            valor = clean_currency_value(texto)
+                            if valor and valor >= 100000:
+                                valor_encontrado = valor
+                                st.success(f"💰 Valor encontrado (estrategia 2): ${valor:,.0f}")
+                        
+                        if pasos_encontrados is None:
+                            pasos = clean_step_value(texto)
+                            if pasos and 1000 <= pasos <= 50000:
+                                pasos_encontrados = pasos
+                                st.success(f"👣 Pasos encontrados (estrategia 2): {pasos:,}")
+    
+    # ESTRATEGIA 3: Buscar los números más grandes de toda la hoja
+    if valor_encontrado is None:
+        st.write("**Estrategia 3**: Buscando números más grandes...")
+        todos_valores = []
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    valor = clean_currency_value(celda)
+                    if valor and valor >= 1000:
+                        todos_valores.append((valor, i+1, j+1, celda))
+        
+        if todos_valores:
+            # Ordenar por valor descendente
+            todos_valores.sort(key=lambda x: x[0], reverse=True)
+            valor_encontrado = todos_valores[0][0]
+            st.success(f"💰 Valor encontrado (estrategia 3): ${valor_encontrado:,.0f} (más grande de la hoja)")
+    
+    if pasos_encontrados is None:
+        st.write("**Estrategia 3**: Buscando números de pasos...")
+        todos_pasos = []
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    pasos = clean_step_value(celda)
+                    if pasos and 100 <= pasos <= 99999:
+                        todos_pasos.append((pasos, i+1, j+1, celda))
+        
+        if todos_pasos:
+            # Ordenar por valor descendente
+            todos_pasos.sort(key=lambda x: x[0], reverse=True)
+            pasos_encontrados = todos_pasos[0][0]
+            st.success(f"👣 Pasos encontrados (estrategia 3): {pasos_encontrados:,} (más grande de la hoja)")
+    
+    return valor_encontrado, pasos_encontrados
+
+def busqueda_avanzada_gualanday(df, hoja):
+    """Búsqueda avanzada específica para GUALANDAY cuando fallan otras estrategias"""
+    st.warning("🔍 **EJECUTANDO BÚSQUEDA AVANZADA PARA GUALANDAY**")
+    
+    valor_encontrado = None
+    pasos_encontrados = None
+    
+    # ESTRATEGIA AVANZADA 1: Buscar patrones de tabla
+    st.write("**Búsqueda Avanzada 1**: Analizando estructura de tabla...")
+    
+    # Buscar filas que tengan múltiples números (posiblemente una tabla de resumen)
+    for i in range(len(df)):
+        fila = df.iloc[i]
+        numeros_en_fila = 0
+        for celda in fila:
+            if pd.notna(celda):
+                if clean_currency_value(celda) or clean_step_value(celda):
+                    numeros_en_fila += 1
+        
+        # Si hay varios números en la fila, podría ser una fila de totales
+        if numeros_en_fila >= 2:
+            st.info(f"📊 Fila {i+1} tiene {numeros_en_fila} valores numéricos (posible fila de totales)")
+            
+            # Extraer valores de esta fila
+            for j, celda in enumerate(fila):
+                if pd.notna(celda):
+                    texto = str(celda).strip()
+                    
+                    # El primer número grande probablemente sea pasos, el segundo valor
+                    if pasos_encontrados is None:
+                        pasos = clean_step_value(texto)
+                        if pasos and 1000 <= pasos <= 50000:
+                            pasos_encontrados = pasos
+                            st.success(f"👣 Pasos (avanzado): {pasos:,} en F{i+1}, C{j+1}")
+                    
+                    if valor_encontrado is None:
+                        valor = clean_currency_value(texto)
+                        if valor and valor >= 100000:
+                            valor_encontrado = valor
+                            st.success(f"💰 Valor (avanzado): ${valor:,.0f} en F{i+1}, C{j+1}")
+    
+    # ESTRATEGIA AVANZADA 2: Buscar por contexto de celdas adyacentes
+    if valor_encontrado is None or pasos_encontrados is None:
+        st.write("**Búsqueda Avanzada 2**: Analizando contexto de celdas...")
+        
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                celda = df.iloc[i, j]
+                if pd.notna(celda):
+                    texto = str(celda).strip().upper()
+                    
+                    # Si encontramos una celda que dice "TOTAL" o similar
+                    if any(palabra in texto for palabra in ['TOTAL', 'GUALANDAY', 'RESUMEN']):
+                        st.info(f"📌 Celda contextual encontrada: F{i+1}, C{j+1} → '{texto}'")
+                        
+                        # Buscar en celdas adyacentes (derecha y abajo)
+                        for di in range(0, 3):
+                            for dj in range(0, 3):
+                                if di == 0 and dj == 0:
+                                    continue  # Saltar la celda actual
+                                
+                                ni, nj = i + di, j + dj
+                                if 0 <= ni < len(df) and 0 <= nj < len(df.columns):
+                                    celda_adyacente = df.iloc[ni, nj]
+                                    if pd.notna(celda_adyacente):
+                                        texto_ady = str(celda_adyacente).strip()
+                                        
+                                        if valor_encontrado is None:
+                                            valor = clean_currency_value(texto_ady)
+                                            if valor and valor >= 100000:
+                                                valor_encontrado = valor
+                                                st.success(f"💰 Valor (contexto): ${valor:,.0f} cerca de '{texto}'")
+                                        
+                                        if pasos_encontrados is None:
+                                            pasos = clean_step_value(texto_ady)
+                                            if pasos and 1000 <= pasos <= 50000:
+                                                pasos_encontrados = pasos
+                                                st.success(f"👣 Pasos (contexto): {pasos:,} cerca de '{texto}'")
+    
+    return valor_encontrado, pasos_encontrados
+
+def buscar_valores_estandar(df, hoja):
+    """Estrategia estándar para CHICORAL y COCORA"""
+    valor_encontrado = None
+    pasos_encontrados = None
+    
+    # Estrategia simple: últimas filas, últimas columnas
+    for i in range(len(df)-1, max(len(df)-10, -1), -1):
+        for j in range(len(df.columns)-1, max(len(df.columns)-5, -1), -1):
+            celda = df.iloc[i, j]
+            if pd.notna(celda):
+                texto = str(celda).strip()
+                
+                if valor_encontrado is None:
+                    valor = clean_currency_value(texto)
+                    if valor and valor >= 1000:
+                        valor_encontrado = valor
+                
+                if pasos_encontrados is None:
+                    pasos = clean_step_value(texto)
+                    if pasos and 100 <= pasos <= 99999:
+                        pasos_encontrados = pasos
+    
+    return valor_encontrado, pasos_encontrados
+
+# Mantener las funciones clean_currency_value y clean_step_value del código anterior
+def clean_currency_value(texto):
+    """Limpia y convierte valores monetarios"""
+    try:
+        if pd.isna(texto) or texto == '':
+            return None
+            
+        texto_str = str(texto).strip()
+        
+        # Si ya es numérico
+        if isinstance(texto, (int, float)) and texto > 0:
+            return float(texto)
+        
+        # Remover texto no numérico pero preservar puntos y comas
+        cleaned = re.sub(r'[^\d.,]', '', texto_str)
+        
+        if not cleaned:
+            return None
+        
+        # Analizar formato
+        if '.' in cleaned and ',' in cleaned:
+            # Formato: 1.000.000,00 -> 1000000.00
+            if cleaned.rfind('.') < cleaned.rfind(','):
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        elif '.' in cleaned and cleaned.count('.') == 1:
+            pass
+        elif ',' in cleaned and cleaned.count(',') == 1:
+            cleaned = cleaned.replace(',', '.')
+        elif '.' in cleaned and cleaned.count('.') > 1:
+            cleaned = cleaned.replace('.', '')
+        elif ',' in cleaned and cleaned.count(',') > 1:
+            cleaned = cleaned.replace(',', '')
+        
+        result = float(cleaned)
+        return result if result >= 0 else None
+        
+    except Exception:
+        return None
+
+def clean_step_value(texto):
+    """Limpia y convierte valores de pasos"""
+    try:
+        if pd.isna(texto) or texto == '':
+            return None
+            
+        texto_str = str(texto).strip()
+        
+        # Si ya es numérico
+        if isinstance(texto, (int, float)) and texto > 0:
+            return int(texto)
+        
+        # Remover todo excepto dígitos
+        cleaned = re.sub(r'[^\d]', '', texto_str)
+        
+        if not cleaned:
+            return None
+        
+        result = int(cleaned)
+        return result if 1 <= result <= 999999 else None
+        
+    except Exception:
+        return None
 
 # ===== FUNCIONES AUXILIARES MEJORADAS =====
 
