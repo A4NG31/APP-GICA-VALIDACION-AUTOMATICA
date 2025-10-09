@@ -570,101 +570,242 @@ def find_resumen_comercios_table(driver):
         
         # ESTRATEGIA MEJORADA: Buscar la estructura de tabla completa
         try:
-            # Buscar el contenedor de la tabla
-            tabla_container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'table') or contains(@class, 'pivotTable') or contains(@role, 'grid') or contains(@class, 'visual')][1]")
+            # Buscar el contenedor de la tabla (más flexible)
+            tabla_container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'table') or contains(@class, 'pivotTable') or contains(@role, 'grid') or contains(@class, 'visual') or contains(@class, 'pivotTableWrapper')][1]")
+            
+            # Tomar screenshot de la tabla para debugging
+            driver.save_screenshot("tabla_resumen_comercios.png")
             
             # Buscar todas las filas de la tabla
-            filas = tabla_container.find_elements(By.XPATH, ".//tr")
+            filas = tabla_container.find_elements(By.XPATH, ".//tr | .//div[contains(@class, 'row')] | .//div[contains(@role, 'row')]")
             
             pasos_data = {}
             encabezados = []
+            columna_pasos = None
             
-            # Primero identificar la columna "Cant Pasos"
+            st.info(f"📊 Analizando {len(filas)} filas en la tabla...")
+            
+            # PRIMERO: Identificar la columna "Cant Pasos" en los encabezados
             for i, fila in enumerate(filas):
-                celdas = fila.find_elements(By.XPATH, ".//td | .//th")
-                texto_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
-                
-                # Buscar encabezados que contengan "Cant Pasos"
-                for j, texto in enumerate(texto_celdas):
-                    if 'CANT PASOS' in texto.upper() or 'CANTIDAD PASOS' in texto.upper() or 'CANT. PASOS' in texto.upper():
-                        columna_pasos = j
-                        st.success(f"✅ Columna 'Cant Pasos' encontrada en posición {j}")
+                try:
+                    celdas = fila.find_elements(By.XPATH, ".//td | .//th | .//div[contains(@class, 'cell')] | .//div[contains(@role, 'cell')] | .//span")
+                    texto_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
+                    
+                    if not texto_celdas:
+                        continue
+                    
+                    # Buscar encabezados que contengan "Cant Pasos"
+                    for j, texto in enumerate(texto_celdas):
+                        texto_upper = texto.upper()
+                        if any(palabra in texto_upper for palabra in ['CANT PASOS', 'CANTIDAD PASOS', 'CANT. PASOS', 'PASOS', 'CANTIDAD']):
+                            columna_pasos = j
+                            st.success(f"✅ Columna 'Cant Pasos' encontrada en posición {j}: {texto}")
+                            encabezados = texto_celdas
+                            break
+                    
+                    if columna_pasos is not None:
                         break
-                
-                # Buscar filas con nombres de peajes
-                for j, texto in enumerate(texto_celdas):
-                    texto_upper = texto.upper()
-                    
-                    # Buscar peajes específicos
-                    if 'CHICORAL' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
-                        # Extraer valor de la columna Cant Pasos
-                        if j < len(texto_celdas) - 1:  # Si hay más columnas a la derecha
-                            # Buscar en la misma fila, asumiendo que Cant Pasos está a la derecha
-                            for k in range(j + 1, len(texto_celdas)):
-                                valor_pasos = texto_celdas[k]
-                                if any(char.isdigit() for char in valor_pasos):
-                                    pasos_data['CHICORAL'] = valor_pasos
-                                    st.success(f"✅ Pasos CHICORAL: {valor_pasos}")
-                                    break
-                    
-                    elif 'COCORA' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
-                        if j < len(texto_celdas) - 1:
-                            for k in range(j + 1, len(texto_celdas)):
-                                valor_pasos = texto_celdas[k]
-                                if any(char.isdigit() for char in valor_pasos):
-                                    pasos_data['COCORA'] = valor_pasos
-                                    st.success(f"✅ Pasos COCORA: {valor_pasos}")
-                                    break
-                    
-                    elif 'GUALANDAY' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
-                        if j < len(texto_celdas) - 1:
-                            for k in range(j + 1, len(texto_celdas)):
-                                valor_pasos = texto_celdas[k]
-                                if any(char.isdigit() for char in valor_pasos):
-                                    pasos_data['GUALANDAY'] = valor_pasos
-                                    st.success(f"✅ Pasos GUALANDAY: {valor_pasos}")
-                                    break
-            
-            # ESTRATEGIA ALTERNATIVA: Si no encontramos por nombres, buscar por estructura de tabla
-            if not pasos_data:
-                st.info("🔄 Intentando estrategia alternativa para extraer pasos...")
-                
-                # Buscar todas las filas que contengan números (posibles valores de pasos)
-                for fila in filas:
-                    celdas = fila.find_elements(By.XPATH, ".//td")
-                    if len(celdas) >= 2:  # Al menos 2 columnas
-                        # Asumir que la primera columna es el nombre y la segunda es el valor
-                        nombre_celda = celdas[0].text.strip().upper() if len(celdas) > 0 else ""
-                        valor_celda = celdas[1].text.strip() if len(celdas) > 1 else ""
                         
-                        if any(char.isdigit() for char in valor_celda) and valor_celda:
-                            if 'CHICORAL' in nombre_celda:
-                                pasos_data['CHICORAL'] = valor_celda
-                            elif 'COCORA' in nombre_celda:
-                                pasos_data['COCORA'] = valor_celda
-                            elif 'GUALANDAY' in nombre_celda:
-                                pasos_data['GUALANDAY'] = valor_celda
+                except Exception as e:
+                    continue
+            
+            # SEGUNDO: Buscar datos por peajes específicos
+            for i, fila in enumerate(filas):
+                try:
+                    celdas = fila.find_elements(By.XPATH, ".//td | .//th | .//div[contains(@class, 'cell')] | .//div[contains(@role, 'cell')] | .//span")
+                    texto_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
+                    
+                    if not texto_celdas:
+                        continue
+                    
+                    texto_fila = ' '.join(texto_celdas).upper()
+                    
+                    # Buscar por nombres de peajes en toda la fila
+                    if 'CHICORAL' in texto_fila and not any(x in texto_fila for x in ['TOTAL', 'SUMA', 'TOT']):
+                        st.info(f"🔍 Encontrada fila CHICORAL: {texto_celdas}")
+                        # Extraer valor de pasos
+                        if columna_pasos is not None and columna_pasos < len(texto_celdas):
+                            valor_pasos = texto_celdas[columna_pasos]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['CHICORAL'] = valor_pasos
+                                st.success(f"✅ Pasos CHICORAL: {valor_pasos}")
+                        else:
+                            # Buscar el primer valor numérico después del nombre
+                            for j, texto in enumerate(texto_celdas):
+                                if any(char.isdigit() for char in texto) and len(texto) <= 10:
+                                    pasos_data['CHICORAL'] = texto
+                                    st.success(f"✅ Pasos CHICORAL (alternativo): {texto}")
+                                    break
+                    
+                    elif 'COCORA' in texto_fila and not any(x in texto_fila for x in ['TOTAL', 'SUMA', 'TOT']):
+                        st.info(f"🔍 Encontrada fila COCORA: {texto_celdas}")
+                        if columna_pasos is not None and columna_pasos < len(texto_celdas):
+                            valor_pasos = texto_celdas[columna_pasos]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['COCORA'] = valor_pasos
+                                st.success(f"✅ Pasos COCORA: {valor_pasos}")
+                        else:
+                            for j, texto in enumerate(texto_celdas):
+                                if any(char.isdigit() for char in texto) and len(texto) <= 10:
+                                    pasos_data['COCORA'] = texto
+                                    st.success(f"✅ Pasos COCORA (alternativo): {texto}")
+                                    break
+                    
+                    elif 'GUALANDAY' in texto_fila and not any(x in texto_fila for x in ['TOTAL', 'SUMA', 'TOT']):
+                        st.info(f"🔍 Encontrada fila GUALANDAY: {texto_celdas}")
+                        if columna_pasos is not None and columna_pasos < len(texto_celdas):
+                            valor_pasos = texto_celdas[columna_pasos]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['GUALANDAY'] = valor_pasos
+                                st.success(f"✅ Pasos GUALANDAY: {valor_pasos}")
+                        else:
+                            for j, texto in enumerate(texto_celdas):
+                                if any(char.isdigit() for char in texto) and len(texto) <= 10:
+                                    pasos_data['GUALANDAY'] = texto
+                                    st.success(f"✅ Pasos GUALANDAY (alternativo): {texto}")
+                                    break
+                                
+                except Exception as e:
+                    continue
+            
+            # TERCERA ESTRATEGIA: Si no encontramos por nombres, buscar por patrones de tabla
+            if len(pasos_data) < 3:
+                st.info("🔄 Intentando estrategia alternativa de búsqueda...")
+                
+                # Buscar filas que tengan exactamente 2 columnas (nombre + valor)
+                for fila in filas:
+                    try:
+                        celdas = fila.find_elements(By.XPATH, ".//td | .//div[contains(@class, 'cell')]")
+                        if len(celdas) == 2:  # Exactamente 2 columnas
+                            nombre = celdas[0].text.strip().upper()
+                            valor = celdas[1].text.strip()
+                            
+                            if any(char.isdigit() for char in valor) and valor:
+                                if 'CHICORAL' in nombre and 'CHICORAL' not in pasos_data:
+                                    pasos_data['CHICORAL'] = valor
+                                    st.success(f"✅ Pasos CHICORAL (2-col): {valor}")
+                                elif 'COCORA' in nombre and 'COCORA' not in pasos_data:
+                                    pasos_data['COCORA'] = valor
+                                    st.success(f"✅ Pasos COCORA (2-col): {valor}")
+                                elif 'GUALANDAY' in nombre and 'GUALANDAY' not in pasos_data:
+                                    pasos_data['GUALANDAY'] = valor
+                                    st.success(f"✅ Pasos GUALANDAY (2-col): {valor}")
+                    except:
+                        continue
+            
+            # CUARTA ESTRATEGIA: Búsqueda por valores numéricos en contexto de tabla
+            if len(pasos_data) < 3:
+                st.info("🔄 Búsqueda avanzada por valores numéricos...")
+                
+                # Buscar todos los valores numéricos en la tabla y sus contextos
+                valores_numericos = []
+                for fila in filas:
+                    try:
+                        celdas = fila.find_elements(By.XPATH, ".//td | .//th | .//div[contains(@class, 'cell')]")
+                        for j, celda in enumerate(celdas):
+                            texto = celda.text.strip()
+                            if any(char.isdigit() for char in texto) and len(texto) <= 10 and texto:
+                                # Verificar si es un número de pasos válido (entre 100 y 999999)
+                                clean_text = texto.replace('.', '').replace(',', '')
+                                if clean_text.isdigit():
+                                    num_value = int(clean_text)
+                                    if 100 <= num_value <= 999999:
+                                        # Obtener contexto (celdas adyacentes)
+                                        contexto = []
+                                        for k in range(max(0, j-2), min(len(celdas), j+3)):
+                                            if k != j:
+                                                contexto.append(celdas[k].text.strip())
+                                        
+                                        valores_numericos.append({
+                                            'valor': texto,
+                                            'numero': num_value,
+                                            'contexto': contexto,
+                                            'fila': [c.text.strip() for c in celdas]
+                                        })
+                    except:
+                        continue
+                
+                # Asignar valores numéricos a peajes basado en el contexto
+                for dato in valores_numericos:
+                    contexto_texto = ' '.join(dato['contexto']).upper()
+                    if 'CHICORAL' in contexto_texto and 'CHICORAL' not in pasos_data:
+                        pasos_data['CHICORAL'] = dato['valor']
+                        st.success(f"✅ Pasos CHICORAL (contexto): {dato['valor']}")
+                    elif 'COCORA' in contexto_texto and 'COCORA' not in pasos_data:
+                        pasos_data['COCORA'] = dato['valor']
+                        st.success(f"✅ Pasos COCORA (contexto): {dato['valor']}")
+                    elif 'GUALANDAY' in contexto_texto and 'GUALANDAY' not in pasos_data:
+                        pasos_data['GUALANDAY'] = dato['valor']
+                        st.success(f"✅ Pasos GUALANDAY (contexto): {dato['valor']}")
+            
+            # QUINTA ESTRATEGIA: Búsqueda exhaustiva por texto
+            if len(pasos_data) < 3:
+                st.info("🔄 Búsqueda exhaustiva en toda la tabla...")
+                
+                # Obtener todo el texto de la tabla
+                texto_tabla = tabla_container.text
+                lineas = texto_tabla.split('\n')
+                
+                for i, linea in enumerate(lineas):
+                    linea_upper = linea.upper()
+                    
+                    if 'CHICORAL' in linea_upper and 'CHICORAL' not in pasos_data:
+                        # Buscar números en la misma línea o líneas adyacentes
+                        for offset in [0, 1, -1, 2, -2]:
+                            idx = i + offset
+                            if 0 <= idx < len(lineas):
+                                linea_numero = lineas[idx]
+                                # Buscar patrones numéricos
+                                numeros = re.findall(r'\b\d{1,3}(?:\.\d{3})*\b', linea_numero)
+                                if numeros:
+                                    pasos_data['CHICORAL'] = numeros[0]
+                                    st.success(f"✅ Pasos CHICORAL (texto): {numeros[0]}")
+                                    break
+                    
+                    elif 'COCORA' in linea_upper and 'COCORA' not in pasos_data:
+                        for offset in [0, 1, -1, 2, -2]:
+                            idx = i + offset
+                            if 0 <= idx < len(lineas):
+                                linea_numero = lineas[idx]
+                                numeros = re.findall(r'\b\d{1,3}(?:\.\d{3})*\b', linea_numero)
+                                if numeros:
+                                    pasos_data['COCORA'] = numeros[0]
+                                    st.success(f"✅ Pasos COCORA (texto): {numeros[0]}")
+                                    break
+                    
+                    elif 'GUALANDAY' in linea_upper and 'GUALANDAY' not in pasos_data:
+                        for offset in [0, 1, -1, 2, -2]:
+                            idx = i + offset
+                            if 0 <= idx < len(lineas):
+                                linea_numero = lineas[idx]
+                                numeros = re.findall(r'\b\d{1,3}(?:\.\d{3})*\b', linea_numero)
+                                if numeros:
+                                    pasos_data['GUALANDAY'] = numeros[0]
+                                    st.success(f"✅ Pasos GUALANDAY (texto): {numeros[0]}")
+                                    break
             
             # Calcular total si tenemos todos los valores
-            if len(pasos_data) == 3:
+            if pasos_data:
                 try:
                     total = 0
                     for peaje, valor in pasos_data.items():
-                        # Limpiar y convertir el valor
-                        valor_limpio = str(valor).replace('.', '').replace(',', '')
-                        if valor_limpio.isdigit():
-                            total += int(valor_limpio)
+                        if peaje != 'TOTAL':
+                            # Limpiar y convertir el valor
+                            valor_limpio = str(valor).replace('.', '').replace(',', '')
+                            if valor_limpio.isdigit():
+                                total += int(valor_limpio)
                     
-                    pasos_data['TOTAL'] = f"{total:,}".replace(",", ".")
-                    st.success(f"✅ Total pasos calculado: {pasos_data['TOTAL']}")
+                    if total > 0:
+                        pasos_data['TOTAL'] = f"{total:,}".replace(",", ".")
+                        st.success(f"✅ Total pasos calculado: {pasos_data['TOTAL']}")
                 except Exception as e:
                     st.warning(f"⚠️ No se pudo calcular el total: {e}")
-                    pasos_data['TOTAL'] = 'No calculable'
             
+            st.info(f"📋 Resultado extracción: {len(pasos_data)} valores encontrados")
             return pasos_data if pasos_data else None
             
         except Exception as e:
-            st.warning(f"⚠️ No se pudo extraer datos de la tabla: {e}")
+            st.error(f"❌ Error extrayendo datos de la tabla: {str(e)}")
             return None
             
     except Exception as e:
