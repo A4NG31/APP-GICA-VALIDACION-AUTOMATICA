@@ -1,7 +1,6 @@
 import os
 import sys
 
-
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
@@ -536,136 +535,100 @@ def find_peaje_values(driver):
     
     return peajes
 
-def find_pasos_por_peaje_bi(driver):
+def find_resumen_comercios_table(driver):
     """
-    NUEVA FUNCIÓN: Buscar cantidad de pasos por peaje en la tabla "RESUMEN COMERCIOS"
+    NUEVA FUNCIÓN: Buscar la tabla "RESUMEN COMERCIOS" y extraer la cantidad de pasos por peaje
     """
     try:
-        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS' para pasos por peaje...")
+        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
         
-        pasos_peajes = {}
-        nombres_peajes = ['CHICORAL', 'COCORA', 'GUALANDAY']
-        total_pasos_bi = 0
-        
-        # Buscar la tabla "RESUMEN COMERCIOS"
-        tabla_selectors = [
+        # Buscar la tabla por su título
+        titulo_selectors = [
             "//*[contains(text(), 'RESUMEN COMERCIOS')]",
             "//*[contains(text(), 'Resumen Comercios')]",
             "//*[contains(text(), 'RESUMEN') and contains(text(), 'COMERCIOS')]",
         ]
         
-        tabla_element = None
-        for selector in tabla_selectors:
+        titulo_element = None
+        for selector in titulo_selectors:
             try:
                 elementos = driver.find_elements(By.XPATH, selector)
                 for elemento in elementos:
                     if elemento.is_displayed():
-                        tabla_element = elemento
+                        titulo_element = elemento
                         st.success("✅ Tabla 'RESUMEN COMERCIOS' encontrada")
                         break
-                if tabla_element:
+                if titulo_element:
                     break
             except:
                 continue
         
-        if not tabla_element:
+        if not titulo_element:
             st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
-            return {}, 0
+            return None
         
-        # Buscar en el contenedor de la tabla
+        # Buscar la tabla completa
         try:
-            container = tabla_element.find_element(By.XPATH, "./ancestor::*[position()<=5]")
+            # Buscar la tabla que contiene el título
+            tabla_container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'table') or contains(@class, 'pivotTable') or contains(@role, 'grid')][1]")
             
-            for nombre_peaje in nombres_peajes:
-                # Buscar el nombre del peaje en la tabla
-                peaje_selectors = [
-                    f".//*[contains(text(), '{nombre_peaje}')]",
-                    f".//*[contains(text(), '{nombre_peaje.upper()}')]",
-                    f".//*[contains(text(), '{nombre_peaje.lower()}')]",
-                ]
+            # Buscar todas las filas de la tabla
+            filas = tabla_container.find_elements(By.XPATH, ".//tr")
+            
+            pasos_data = {}
+            
+            for fila in filas:
+                celdas = fila.find_elements(By.XPATH, ".//td | .//th")
+                texto_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
                 
-                peaje_element = None
-                for selector in peaje_selectors:
-                    try:
-                        elementos = container.find_elements(By.XPATH, selector)
-                        for elemento in elementos:
-                            if elemento.is_displayed():
-                                texto = elemento.text.strip().upper()
-                                if nombre_peaje in texto:
-                                    peaje_element = elemento
-                                    break
-                        if peaje_element:
-                            break
-                    except:
-                        continue
-                
-                if peaje_element:
-                    # Buscar valores numéricos cerca del nombre del peaje (para Cant Pasos)
-                    try:
-                        # Buscar en la misma fila o contenedor
-                        fila_element = peaje_element.find_element(By.XPATH, "./ancestor::*[position()<=3]")
-                        
-                        # Buscar todos los elementos numéricos en la misma fila
-                        numeric_elements = fila_element.find_elements(By.XPATH, ".//*[text()]")
-                        
-                        for elem in numeric_elements:
-                            texto = elem.text.strip()
-                            # Verificar si es un número válido para pasos
-                            if (texto and 
-                                any(char.isdigit() for char in texto) and
-                                1 <= len(texto) <= 6 and  # Los pasos son números de 1-6 dígitos
-                                texto != peaje_element.text and
-                                not any(word in texto.upper() for word in ['CHICORAL', 'COCORA', 'GUALANDAY', 'TOTAL', 'RESUMEN'])):
-                                
-                                # Limpiar y convertir
-                                pasos_limpio = re.sub(r'[^\d]', '', texto)
-                                if pasos_limpio and pasos_limpio.isdigit():
-                                    num_pasos = int(pasos_limpio)
-                                    if 1 <= num_pasos <= 999999:  # Rango razonable para pasos
-                                        pasos_peajes[nombre_peaje] = num_pasos
-                                        total_pasos_bi += num_pasos
-                                        st.success(f"✅ Pasos BI {nombre_peaje}: {num_pasos}")
-                                        break
-                        
-                        # Si no se encontró en la misma fila, buscar elementos cercanos
-                        if nombre_peaje not in pasos_peajes:
-                            following_elements = peaje_element.find_elements(By.XPATH, "./following::*")
-                            for elem in following_elements[:10]:
-                                texto = elem.text.strip()
-                                if (texto and 
-                                    any(char.isdigit() for char in texto) and
-                                    1 <= len(texto) <= 6 and
-                                    not any(word in texto.upper() for word in ['CHICORAL', 'COCORA', 'GUALANDAY', 'TOTAL', 'RESUMEN'])):
-                                    
-                                    pasos_limpio = re.sub(r'[^\d]', '', texto)
-                                    if pasos_limpio and pasos_limpio.isdigit():
-                                        num_pasos = int(pasos_limpio)
-                                        if 1 <= num_pasos <= 999999:
-                                            pasos_peajes[nombre_peaje] = num_pasos
-                                            total_pasos_bi += num_pasos
-                                            st.success(f"✅ Pasos BI {nombre_peaje} (cercano): {num_pasos}")
-                                            break
+                # Buscar filas que contengan nombres de peajes
+                for i, texto in enumerate(texto_celdas):
+                    texto_upper = texto.upper()
                     
-                    except Exception as e:
-                        st.warning(f"⚠️ Error buscando pasos para {nombre_peaje}: {e}")
-                        pasos_peajes[nombre_peaje] = 0
-                else:
-                    st.warning(f"⚠️ No se encontró el peaje {nombre_peaje} en la tabla")
-                    pasos_peajes[nombre_peaje] = 0
+                    # Verificar si es un peaje conocido
+                    if 'CHICORAL' in texto_upper:
+                        # Buscar la columna "Cant Pasos" - asumimos que está a la derecha
+                        if i + 1 < len(texto_celdas):
+                            valor_pasos = texto_celdas[i + 1]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['CHICORAL'] = valor_pasos
+                                st.success(f"✅ Pasos CHICORAL: {valor_pasos}")
+                    
+                    elif 'COCORA' in texto_upper:
+                        if i + 1 < len(texto_celdas):
+                            valor_pasos = texto_celdas[i + 1]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['COCORA'] = valor_pasos
+                                st.success(f"✅ Pasos COCORA: {valor_pasos}")
+                    
+                    elif 'GUALANDAY' in texto_upper:
+                        if i + 1 < len(texto_celdas):
+                            valor_pasos = texto_celdas[i + 1]
+                            if any(char.isdigit() for char in valor_pasos):
+                                pasos_data['GUALANDAY'] = valor_pasos
+                                st.success(f"✅ Pasos GUALANDAY: {valor_pasos}")
             
-            st.success(f"✅ Total pasos BI encontrados: {total_pasos_bi}")
-            return pasos_peajes, total_pasos_bi
+            # Calcular total si tenemos todos los valores
+            if len(pasos_data) == 3:
+                try:
+                    total = sum(int(str(valor).replace(',', '').replace('.', '')) for valor in pasos_data.values())
+                    pasos_data['TOTAL'] = f"{total:,}".replace(",", ".")
+                    st.success(f"✅ Total pasos calculado: {pasos_data['TOTAL']}")
+                except:
+                    pasos_data['TOTAL'] = 'No calculable'
+            
+            return pasos_data if pasos_data else None
             
         except Exception as e:
-            st.error(f"❌ Error procesando tabla RESUMEN COMERCIOS: {e}")
-            return {}, 0
+            st.warning(f"⚠️ No se pudo extraer datos de la tabla: {e}")
+            return None
             
     except Exception as e:
-        st.error(f"❌ Error buscando pasos por peaje BI: {e}")
-        return {}, 0
+        st.error(f"❌ Error buscando tabla RESUMEN COMERCIOS: {str(e)}")
+        return None
 
 def extract_powerbi_data(fecha_objetivo):
-    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES"""
+    """Función principal para extraer datos de Power BI - VERSIÓN EXTENDIDA CON PEAJES Y PASOS"""
     
     REPORT_URL = "https://app.powerbi.com/view?r=eyJrIjoiYTFmOWZkMDAtY2IwYi00OTg4LWIxZDctNGZmYmU0NTMxNGI1IiwidCI6ImY5MTdlZDFiLWI0MDMtNDljNS1iODBiLWJhYWUzY2UwMzc1YSJ9"
     
@@ -693,20 +656,15 @@ def extract_powerbi_data(fecha_objetivo):
         # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS" - CON MÁS DETALLE
+        # 6. Buscar "CANTIDAD PASOS" 
         st.info("🔍 Buscando tabla 'CANTIDAD PASOS'...")
         cantidad_pasos_texto = find_cantidad_pasos_card(driver)
         
-        # Si no se encuentra, intentar una búsqueda más agresiva
-        if not cantidad_pasos_texto or cantidad_pasos_texto == 'No encontrado':
-            st.warning("🔄 Intentando búsqueda alternativa para CANTIDAD PASOS...")
-            cantidad_pasos_texto = buscar_cantidad_pasos_alternativo(driver)
+        # 7. NUEVA FUNCIONALIDAD: Buscar tabla "RESUMEN COMERCIOS" para pasos por peaje
+        pasos_por_peaje = find_resumen_comercios_table(driver)
         
-        # 7. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
+        # 8. Extraer valores por peaje (SIN MENSAJES)
         valores_peajes = find_peaje_values(driver)
-        
-        # 8. NUEVA FUNCIONALIDAD: Extraer pasos por peaje del BI
-        pasos_peajes_bi, total_pasos_bi = find_pasos_por_peaje_bi(driver)
         
         # 9. Tomar screenshot final
         driver.save_screenshot("powerbi_final.png")
@@ -714,9 +672,8 @@ def extract_powerbi_data(fecha_objetivo):
         return {
             'valor_texto': valor_texto,
             'cantidad_pasos_texto': cantidad_pasos_texto or 'No encontrado',
+            'pasos_por_peaje': pasos_por_peaje or {},
             'valores_peajes': valores_peajes,
-            'pasos_peajes_bi': pasos_peajes_bi,  # NUEVO: Pasos por peaje del BI
-            'total_pasos_bi': total_pasos_bi,    # NUEVO: Total pasos del BI
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
                 'seleccion': 'powerbi_despues_seleccion.png',
@@ -759,139 +716,121 @@ def buscar_cantidad_pasos_alternativo(driver):
         st.warning(f"⚠️ Búsqueda alternativa falló: {e}")
         return None
 
-# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MEJORADAS) =====
+# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
 
 def extract_excel_values(uploaded_file):
-    """Extraer valores monetarios Y cantidad de pasos de las 3 hojas del Excel - VERSIÓN MEJORADA"""
+    """Extraer valores de las 3 hojas del Excel - VERSIÓN SILENCIOSA"""
     try:
         hojas = ['CHICORAL', 'GUALANDAY', 'COCORA']
         valores = {}
-        pasos = {}  # Diccionario para cantidad de pasos por peaje
         total_general = 0
-        total_pasos = 0
         
         for hoja in hojas:
             try:
                 df = pd.read_excel(uploaded_file, sheet_name=hoja, header=None)
                 
-                # Variables para almacenar resultados
+                # Buscar el ÚLTIMO "Total" en la hoja
                 valor_encontrado = None
-                pasos_encontrados = None
+                mejor_candidato = None
+                mejor_puntaje = -1
                 
-                # ESTRATEGIA MEJORADA: Buscar en las últimas filas donde suelen estar los totales
-                for i in range(len(df)-1, max(len(df)-15, -1), -1):
+                # Buscar de ABAJO hacia ARRIBA
+                for i in range(len(df)-1, -1, -1):
                     fila = df.iloc[i]
                     
-                    # Buscar cualquier celda que contenga números significativos
+                    # Buscar "Total" en esta fila
                     for j, celda in enumerate(fila):
-                        if pd.notna(celda):
-                            texto = str(celda).strip()
+                        if pd.notna(celda) and isinstance(celda, str) and 'TOTAL' in celda.upper().strip():
                             
-                            # ESTRATEGIA PARA VALORES MONETARIOS (más permisiva)
-                            if (any(char.isdigit() for char in texto) and 
-                                len(texto) > 4 and  # Valores monetarios son más largos
-                                ('$' in texto or ',' in texto or '.' in texto)):
-                                
-                                try:
-                                    # Procesar valor monetario
-                                    valor_limpio = re.sub(r'[^\d.,]', '', texto)
-                                    # Manejar formato colombiano
-                                    if '.' in valor_limpio and ',' in valor_limpio:
-                                        valor_limpio = valor_limpio.replace('.', '').replace(',', '.')
-                                    elif '.' in valor_limpio and valor_limpio.count('.') > 1:
-                                        valor_limpio = valor_limpio.replace('.', '')
-                                    elif ',' in valor_limpio:
-                                        if valor_limpio.count(',') == 1 and len(valor_limpio.split(',')[-1]) == 2:
-                                            valor_limpio = valor_limpio.replace(',', '.')
-                                        else:
-                                            valor_limpio = valor_limpio.replace(',', '')
+                            # Buscar valores monetarios en la MISMA fila
+                            for k in range(len(fila)):
+                                posible_valor = fila.iloc[k]
+                                if pd.notna(posible_valor):
+                                    valor_str = str(posible_valor)
                                     
-                                    valor_numerico = float(valor_limpio)
-                                    if valor_numerico >= 1000:  # Valores monetarios son grandes
-                                        valor_encontrado = valor_numerico
-                                        st.success(f"✅ Valor monetario encontrado en {hoja}: {texto} -> {valor_numerico:,.0f}")
-                                        break
-                                except:
-                                    continue
-                            
-                            # ESTRATEGIA PARA PASOS (ya funciona bien)
-                            elif (any(char.isdigit() for char in texto) and 
-                                  3 <= len(texto) <= 6 and  # Pasos son números más cortos
-                                  not any(word in texto.upper() for word in ['TOTAL', 'VALOR', '$', 'PAGAR', 'COMERCIO'])):
-                                
-                                # Verificar si es principalmente numérico
-                                digit_count = sum(char.isdigit() for char in texto)
-                                if digit_count >= len(texto) * 0.7:  # Al menos 70% dígitos
-                                    pasos_limpio = re.sub(r'[^\d]', '', texto)
-                                    if pasos_limpio and pasos_limpio.isdigit():
-                                        num_pasos = int(pasos_limpio)
-                                        if 100 <= num_pasos <= 99999:  # Rango para pasos
-                                            pasos_encontrados = num_pasos
-                                            st.success(f"✅ Pasos encontrados en {hoja}: {texto} -> {num_pasos}")
-                                            # No break aquí, seguir buscando valor monetario
-                    
-                    # Si encontramos ambos, salir del loop de filas
-                    if valor_encontrado is not None and pasos_encontrados is not None:
-                        break
+                                    # Calcular puntaje
+                                    puntaje = 0
+                                    if '$' in valor_str:
+                                        puntaje += 10
+                                    if any(c.isdigit() for c in valor_str):
+                                        puntaje += 5
+                                    if '.' in valor_str and len(valor_str.split('.')[-1]) == 3:
+                                        puntaje += 3
+                                    if len(valor_str) > 6:
+                                        puntaje += 2
+                                    
+                                    # Excluir valores incorrectos
+                                    if puntaje > 0 and len(valor_str) < 4:
+                                        puntaje = 0
+                                    if 'pag' in valor_str.lower():
+                                        puntaje = 0
+                                    
+                                    if puntaje > mejor_puntaje:
+                                        mejor_puntaje = puntaje
+                                        mejor_candidato = posible_valor
                 
-                # ESTRATEGIA ALTERNATIVA PARA VALORES MONETARIOS si no se encontraron
-                if valor_encontrado is None:
-                    st.warning(f"🔄 Búsqueda alternativa para valor monetario en {hoja}")
-                    # Buscar en columnas específicas donde suelen estar los valores
-                    for i in range(len(df)-1, max(len(df)-10, -1), -1):
+                # Usar el mejor candidato
+                if mejor_candidato is not None and mejor_puntaje >= 5:
+                    valor_encontrado = mejor_candidato
+                else:
+                    # Búsqueda alternativa en últimas filas
+                    for i in range(len(df)-1, max(len(df)-11, -1), -1):
                         fila = df.iloc[i]
-                        # Buscar en las últimas columnas (derecha)
-                        for j in range(len(fila)-1, max(len(fila)-5, -1), -1):
-                            celda = fila.iloc[j]
-                            if pd.notna(celda):
-                                texto = str(celda).strip()
-                                if (any(char.isdigit() for char in texto) and 
-                                    len(texto) > 4 and
-                                    (',' in texto or '.' in texto)):
-                                    
-                                    try:
-                                        valor_limpio = re.sub(r'[^\d.,]', '', texto)
-                                        # Intentar convertir
-                                        if '.' in valor_limpio and ',' in valor_limpio:
-                                            valor_limpio = valor_limpio.replace('.', '').replace(',', '.')
-                                        valor_numerico = float(valor_limpio)
-                                        if valor_numerico >= 1000:
-                                            valor_encontrado = valor_numerico
-                                            st.success(f"✅ Valor monetario (alternativa) en {hoja}: {texto} -> {valor_numerico:,.0f}")
-                                            break
-                                    except:
-                                        continue
+                        
+                        for j, celda in enumerate(fila):
+                            if pd.notna(celda) and isinstance(celda, str) and 'TOTAL' in celda.upper().strip():
+                                for offset in [18, 17, 16, 19, 15]:
+                                    if len(fila) > offset:
+                                        valor_col = fila.iloc[offset]
+                                        if pd.notna(valor_col):
+                                            valor_str = str(valor_col)
+                                            if (any(c.isdigit() for c in valor_str) and 
+                                                len(valor_str) > 4 and 
+                                                ('$' in valor_str or '.' in valor_str)):
+                                                valor_encontrado = valor_col
+                                                break
+                                if valor_encontrado is not None:
+                                    break
                         if valor_encontrado is not None:
                             break
                 
-                # Asignar valores encontrados o defaults
+                # Procesar el valor encontrado
                 if valor_encontrado is not None:
-                    valores[hoja] = valor_encontrado
-                    total_general += valor_encontrado
+                    valor_original = str(valor_encontrado)
+                    valor_limpio = re.sub(r'[^\d.,]', '', valor_original)
+                    
+                    try:
+                        # Para formato colombiano
+                        if '.' in valor_limpio:
+                            valor_limpio = valor_limpio.replace('.', '')
+                        if ',' in valor_limpio:
+                            partes = valor_limpio.split(',')
+                            if len(partes) == 2 and len(partes[1]) == 2:
+                                valor_limpio = partes[0] + '.' + partes[1]
+                            else:
+                                valor_limpio = valor_limpio.replace(',', '')
+                        
+                        valor_numerico = float(valor_limpio)
+                        
+                        if valor_numerico >= 1000:
+                            valores[hoja] = valor_numerico
+                            total_general += valor_numerico
+                        else:
+                            valores[hoja] = 0
+                            
+                    except:
+                        valores[hoja] = 0
                 else:
                     valores[hoja] = 0
-                    st.error(f"❌ No se encontró valor monetario para {hoja}")
-                
-                if pasos_encontrados is not None:
-                    pasos[hoja] = pasos_encontrados
-                    total_pasos += pasos_encontrados
-                else:
-                    pasos[hoja] = 0
-                    st.error(f"❌ No se encontró cantidad de pasos para {hoja}")
                     
-            except Exception as e:
+            except:
                 valores[hoja] = 0
-                pasos[hoja] = 0
-                st.error(f"❌ Error procesando hoja {hoja}: {str(e)}")
         
-        # Mostrar resumen final
-        st.success(f"📊 Resumen extracción - Valores: ${total_general:,.0f}, Pasos: {total_pasos:,}")
-        
-        return valores, total_general, pasos, total_pasos
+        return valores, total_general
         
     except Exception as e:
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
-        return {}, 0, {}, 0
+        return {}, 0
 
 # ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS) =====
 
@@ -1010,40 +949,6 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
     
     return comparaciones
 
-def compare_pasos_peajes(pasos_peajes_bi, pasos_excel):
-    """
-    NUEVA FUNCIÓN: Comparar cantidad de pasos por peaje entre Power BI y Excel
-    """
-    comparaciones = {}
-    
-    for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-        try:
-            # Valor de Power BI
-            pasos_bi = pasos_peajes_bi.get(peaje, 0)
-            pasos_excel_val = pasos_excel.get(peaje, 0)
-            
-            # Comparar
-            coinciden = pasos_bi == pasos_excel_val
-            diferencia = abs(pasos_bi - pasos_excel_val)
-            
-            comparaciones[peaje] = {
-                'pasos_bi': pasos_bi,
-                'pasos_excel': pasos_excel_val,
-                'coinciden': coinciden,
-                'diferencia': diferencia
-            }
-            
-        except Exception as e:
-            st.error(f"❌ Error comparando pasos {peaje}: {e}")
-            comparaciones[peaje] = {
-                'pasos_bi': 0,
-                'pasos_excel': pasos_excel.get(peaje, 0),
-                'coinciden': False,
-                'diferencia': 0
-            }
-    
-    return comparaciones
-
 # ===== INTERFAZ PRINCIPAL =====
 
 def main():
@@ -1055,12 +960,13 @@ def main():
     st.sidebar.info("""
     **Objetivo:**
     - Cargar archivo Excel con 3 hojas
-    - Extraer valores Y pasos de CHICORAL, GUALANDAY, COCORA
-    - Calcular totales automáticamente
-    - Comparar con Power BI (Total, Pasos y por Peaje)
+    - Extraer valores de CHICORAL, GUALANDAY, COCORA
+    - Calcular total automáticamente
+    - Comparar con Power BI (Total y por Peaje)
+    - Extraer cantidad de pasos por peaje
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.3 - Con Pasos por Peaje BI
+    **Versión:** v2.2 - Con Cantidad de Pasos por Peaje
     """)
     
     # Estado del sistema
@@ -1092,14 +998,12 @@ def main():
         
         # Extraer valores del Excel CON SPINNER
         with st.spinner("📊 Procesando archivo Excel..."):
-            valores, total_general, pasos, total_pasos = extract_excel_values(uploaded_file)
+            valores, total_general = extract_excel_values(uploaded_file)
         
-        if total_general > 0 or total_pasos > 0:
+        if total_general > 0:
             # ========== MOSTRAR SOLO RESUMEN DE VALORES ==========
             st.markdown("### 📊 Valores Extraídos del Excel")
             
-            # Primera fila: Valores monetarios
-            st.markdown("#### 💰 Valores Monetarios")
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -1117,22 +1021,6 @@ def main():
             with col4:
                 total_formateado = f"${total_general:,.0f}".replace(",", ".")
                 st.metric("TOTAL GENERAL", total_formateado, delta="Excel")
-            
-            # Segunda fila: Cantidad de Pasos
-            st.markdown("#### 👣 Cantidad de Pasos")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("PASOS CHICORAL", f"{pasos['CHICORAL']:,}".replace(",", "."))
-            
-            with col2:
-                st.metric("PASOS GUALANDAY", f"{pasos['GUALANDAY']:,}".replace(",", "."))
-            
-            with col3:
-                st.metric("PASOS COCORA", f"{pasos['COCORA']:,}".replace(",", "."))
-            
-            with col4:
-                st.metric("TOTAL PASOS", f"{total_pasos:,}".replace(",", "."), delta="Excel")
             
             st.markdown("---")
             
@@ -1164,16 +1052,15 @@ def main():
                     if resultados and resultados.get('valor_texto'):
                         valor_powerbi_texto = resultados['valor_texto']
                         cantidad_pasos_texto = resultados.get('cantidad_pasos_texto', 'No encontrado')
+                        pasos_por_peaje = resultados.get('pasos_por_peaje', {})
                         valores_peajes_powerbi = resultados.get('valores_peajes', {})
-                        pasos_peajes_bi = resultados.get('pasos_peajes_bi', {})
-                        total_pasos_bi = resultados.get('total_pasos_bi', 0)
                         
                         st.markdown("---")
                         
                         # ========== SECCIÓN 4: RESULTADOS - VALORES POWER BI ==========
                         st.markdown("### 📊 Valores Extraídos de Power BI")
                         
-                        # Primera fila: Valores principales
+                        # Mostrar VALOR A PAGAR A COMERCIO y CANTIDAD PASOS
                         col1, col2 = st.columns(2)
                         
                         with col1:
@@ -1182,21 +1069,28 @@ def main():
                         with col2:
                             st.metric("👣 CANTIDAD DE PASOS BI", cantidad_pasos_texto)
                         
-                        # Segunda fila: Pasos por peaje del BI
-                        st.markdown("#### 👣 Pasos por Peaje - Power BI")
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            st.metric("PASOS CHICORAL BI", f"{pasos_peajes_bi.get('CHICORAL', 0):,}".replace(",", "."))
-                        
-                        with col2:
-                            st.metric("PASOS GUALANDAY BI", f"{pasos_peajes_bi.get('GUALANDAY', 0):,}".replace(",", "."))
-                        
-                        with col3:
-                            st.metric("PASOS COCORA BI", f"{pasos_peajes_bi.get('COCORA', 0):,}".replace(",", "."))
-                        
-                        with col4:
-                            st.metric("TOTAL PASOS BI", f"{total_pasos_bi:,}".replace(",", "."), delta="Power BI")
+                        # Mostrar tabla de pasos por peaje si está disponible
+                        if pasos_por_peaje:
+                            st.markdown("#### 👣 Cantidad de Pasos por Peaje")
+                            
+                            # Crear tabla para pasos por peaje
+                            tabla_pasos_data = []
+                            for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+                                if peaje in pasos_por_peaje:
+                                    tabla_pasos_data.append({
+                                        'Peaje': peaje,
+                                        'Cantidad de Pasos': pasos_por_peaje[peaje]
+                                    })
+                            
+                            if 'TOTAL' in pasos_por_peaje:
+                                tabla_pasos_data.append({
+                                    'Peaje': 'TOTAL',
+                                    'Cantidad de Pasos': pasos_por_peaje['TOTAL']
+                                })
+                            
+                            if tabla_pasos_data:
+                                df_pasos = pd.DataFrame(tabla_pasos_data)
+                                st.dataframe(df_pasos, use_container_width=True, hide_index=True)
                         
                         st.markdown("---")
                         
@@ -1228,86 +1122,15 @@ def main():
                         
                         st.markdown("---")
                         
-                        # ========== SECCIÓN 6: RESULTADOS - COMPARACIÓN DE PASOS TOTALES ==========
-                        st.markdown("### 👣 Validación: Cantidad de Pasos Totales")
-                        
-                        # Convertir cantidad de pasos de Power BI a número
-                        cantidad_pasos_bi = 0
-                        if cantidad_pasos_texto and cantidad_pasos_texto != 'No encontrado':
-                            try:
-                                # Limpiar el texto (remover comas, puntos, etc.)
-                                pasos_limpio = re.sub(r'[^\d]', '', str(cantidad_pasos_texto))
-                                if pasos_limpio:
-                                    cantidad_pasos_bi = int(pasos_limpio)
-                            except:
-                                cantidad_pasos_bi = 0
-                        
-                        # Usar el total de pasos del BI si está disponible
-                        if total_pasos_bi > 0:
-                            cantidad_pasos_bi = total_pasos_bi
-                        
-                        # Comparar cantidad de pasos
-                        coinciden_pasos = cantidad_pasos_bi == total_pasos
-                        
-                        col1, col2, col3 = st.columns([2, 2, 1])
-                        
-                        with col1:
-                            st.metric("📊 Power BI", f"{cantidad_pasos_bi:,}".replace(",", "."))
-                        with col2:
-                            st.metric("📁 Excel", f"{total_pasos:,}".replace(",", "."))
-                        with col3:
-                            if coinciden_pasos:
-                                st.markdown("#### ✅")
-                                st.success("COINCIDE")
-                            else:
-                                diferencia_pasos = abs(cantidad_pasos_bi - total_pasos)
-                                st.markdown("#### ❌")
-                                st.error("DIFERENCIA")
-                                st.caption(f"{diferencia_pasos:,}".replace(",", "."))
-                        
-                        st.markdown("---")
-                        
-                        # ========== SECCIÓN 7: RESULTADOS - COMPARACIÓN DE PASOS POR PEAJE ==========
-                        st.markdown("### 🏢 Validación: Pasos por Peaje")
-                        
-                        # Comparar pasos por peaje
-                        comparaciones_pasos_peajes = compare_pasos_peajes(pasos_peajes_bi, pasos)
-                        
-                        # Crear tabla resumen compacta
-                        tabla_data = []
-                        todos_pasos_coinciden = True
-                        
-                        for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
-                            comp = comparaciones_pasos_peajes[peaje]
-                            
-                            estado_icono = "✅" if comp['coinciden'] else "❌"
-                            diferencia_texto = "0" if comp['coinciden'] else f"{comp['diferencia']:,}".replace(",", ".")
-                            
-                            tabla_data.append({
-                                '': estado_icono,
-                                'Peaje': peaje,
-                                'Power BI': f"{comp['pasos_bi']:,}".replace(",", "."),
-                                'Excel': f"{comp['pasos_excel']:,}".replace(",", "."),
-                                'Dif.': diferencia_texto
-                            })
-                            
-                            if not comp['coinciden']:
-                                todos_pasos_coinciden = False
-                        
-                        df_comparacion_pasos = pd.DataFrame(tabla_data)
-                        st.dataframe(df_comparacion_pasos, use_container_width=True, hide_index=True)
-                        
-                        st.markdown("---")
-                        
-                        # ========== SECCIÓN 8: RESULTADOS - COMPARACIÓN POR PEAJE (VALORES) ==========
-                        st.markdown("### 💰 Validación: Valores por Peaje")
+                        # ========== SECCIÓN 6: RESULTADOS - COMPARACIÓN POR PEAJE ==========
+                        st.markdown("### 🏢 Validación: Por Peaje")
                         
                         # Comparar valores por peaje
                         comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores)
                         
                         # Crear tabla resumen compacta
-                        tabla_data_valores = []
-                        todos_valores_coinciden = True
+                        tabla_data = []
+                        todos_coinciden = True
                         
                         for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                             comp = comparaciones_peajes[peaje]
@@ -1315,7 +1138,7 @@ def main():
                             estado_icono = "✅" if comp['coinciden'] else "❌"
                             diferencia_texto = "$0" if comp['coinciden'] else f"${comp['diferencia']:,.0f}".replace(",", ".")
                             
-                            tabla_data_valores.append({
+                            tabla_data.append({
                                 '': estado_icono,
                                 'Peaje': peaje,
                                 'Power BI': comp['powerbi_texto'],
@@ -1324,57 +1147,25 @@ def main():
                             })
                             
                             if not comp['coinciden']:
-                                todos_valores_coinciden = False
+                                todos_coinciden = False
                         
-                        df_comparacion_valores = pd.DataFrame(tabla_data_valores)
-                        st.dataframe(df_comparacion_valores, use_container_width=True, hide_index=True)
+                        df_comparacion = pd.DataFrame(tabla_data)
+                        st.dataframe(df_comparacion, use_container_width=True, hide_index=True)
                         
                         st.markdown("---")
                         
-                        # ========== SECCIÓN 9: RESUMEN FINAL ==========
+                        # ========== SECCIÓN 7: RESUMEN FINAL ==========
                         st.markdown("### 📋 Resultado Final")
                         
-                        validacion_completa = (coinciden and coinciden_pasos and 
-                                             todos_valores_coinciden and todos_pasos_coinciden)
-                        
-                        validacion_parcial = (coinciden or coinciden_pasos or 
-                                            todos_valores_coinciden or todos_pasos_coinciden)
-                        
-                        if validacion_completa:
+                        if coinciden and todos_coinciden:
                             st.success("🎉 **VALIDACIÓN EXITOSA** - Todos los valores coinciden")
                             st.balloons()
-                        elif validacion_parcial:
-                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Algunos valores coinciden, otros no")
+                        elif coinciden and not todos_coinciden:
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - El total coincide, pero hay diferencias por peaje")
+                        elif not coinciden and todos_coinciden:
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los peajes coinciden, pero el total tiene diferencias")
                         else:
-                            st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en todos los valores")
-                        
-                        # Mostrar detalles específicos
-                        st.markdown("#### 📈 Detalles de Validación:")
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            if coinciden:
-                                st.success("✅ Valores monetarios totales: COINCIDEN")
-                            else:
-                                st.error("❌ Valores monetarios totales: NO COINCIDEN")
-                        
-                        with col2:
-                            if coinciden_pasos:
-                                st.success("✅ Cantidad de pasos totales: COINCIDEN")
-                            else:
-                                st.error("❌ Cantidad de pasos totales: NO COINCIDEN")
-                        
-                        with col3:
-                            if todos_valores_coinciden:
-                                st.success("✅ Valores por peaje: COINCIDEN")
-                            else:
-                                st.error("❌ Valores por peaje: NO COINCIDEN")
-                        
-                        with col4:
-                            if todos_pasos_coinciden:
-                                st.success("✅ Pasos por peaje: COINCIDEN")
-                            else:
-                                st.error("❌ Pasos por peaje: NO COINCIDEN")
+                            st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en total y peajes")
                         
                         # Botón para ver detalles adicionales
                         with st.expander("🔍 Ver Detalles Completos y Capturas"):
@@ -1382,7 +1173,6 @@ def main():
                             st.markdown("#### 📊 Tabla Detallada")
                             resumen_data = []
                             
-                            # Valores monetarios
                             resumen_data.append({
                                 'Concepto': 'TOTAL GENERAL',
                                 'Power BI': f"${powerbi_numero:,.0f}".replace(",", "."),
@@ -1392,35 +1182,44 @@ def main():
                                 'Dif. %': f"{abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%" if excel_numero > 0 else "N/A"
                             })
                             
-                            # Cantidad de pasos totales
+                            # Agregar CANTIDAD DE PASOS a la tabla detallada
                             resumen_data.append({
-                                'Concepto': 'CANTIDAD DE PASOS TOTAL',
-                                'Power BI': f"{cantidad_pasos_bi:,}".replace(",", "."),
-                                'Excel': f"{total_pasos:,}".replace(",", "."),
-                                'Estado': '✅ Coincide' if coinciden_pasos else '❌ No coincide',
-                                'Diferencia': f"{abs(cantidad_pasos_bi - total_pasos):,}".replace(",", "."),
-                                'Dif. %': f"{abs(cantidad_pasos_bi - total_pasos)/total_pasos*100:.2f}%" if total_pasos > 0 else "N/A"
+                                'Concepto': 'CANTIDAD DE PASOS',
+                                'Power BI': cantidad_pasos_texto,
+                                'Excel': 'N/A',
+                                'Estado': 'ℹ️ Solo Power BI',
+                                'Diferencia': 'N/A',
+                                'Dif. %': 'N/A'
                             })
                             
-                            # Pasos por peaje
-                            for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
-                                comp_pasos = comparaciones_pasos_peajes[peaje]
-                                excel_pasos = comp_pasos['pasos_excel']
-                                resumen_data.append({
-                                    'Concepto': f'PASOS {peaje}',
-                                    'Power BI': f"{comp_pasos['pasos_bi']:,}".replace(",", "."),
-                                    'Excel': f"{comp_pasos['pasos_excel']:,}".replace(",", "."),
-                                    'Estado': '✅ Coincide' if comp_pasos['coinciden'] else '❌ No coincide',
-                                    'Diferencia': f"{comp_pasos['diferencia']:,}".replace(",", "."),
-                                    'Dif. %': f"{comp_pasos['diferencia']/excel_pasos*100:.2f}%" if excel_pasos > 0 else "N/A"
-                                })
+                            # Agregar pasos por peaje si están disponibles
+                            if pasos_por_peaje:
+                                for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+                                    if peaje in pasos_por_peaje:
+                                        resumen_data.append({
+                                            'Concepto': f'PASOS {peaje}',
+                                            'Power BI': pasos_por_peaje[peaje],
+                                            'Excel': 'N/A',
+                                            'Estado': 'ℹ️ Solo Power BI',
+                                            'Diferencia': 'N/A',
+                                            'Dif. %': 'N/A'
+                                        })
+                                
+                                if 'TOTAL' in pasos_por_peaje:
+                                    resumen_data.append({
+                                        'Concepto': 'TOTAL PASOS',
+                                        'Power BI': pasos_por_peaje['TOTAL'],
+                                        'Excel': 'N/A',
+                                        'Estado': 'ℹ️ Solo Power BI',
+                                        'Diferencia': 'N/A',
+                                        'Dif. %': 'N/A'
+                                    })
                             
-                            # Valores por peaje
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                                 comp = comparaciones_peajes[peaje]
                                 excel_val = comp['excel_numero']
                                 resumen_data.append({
-                                    'Concepto': f'VALOR {peaje}',
+                                    'Concepto': peaje,
                                     'Power BI': comp['powerbi_texto'],
                                     'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
                                     'Estado': '✅ Coincide' if comp['coinciden'] else '❌ No coincide',
@@ -1458,8 +1257,7 @@ def main():
                 st.markdown("""
                 - Verifica que las hojas se llamen **CHICORAL**, **GUALANDAY**, **COCORA**
                 - Asegúrate de que haya valores numéricos en las celdas de total
-                - Revisa que los totales estén claramente identificados
-                - Verifica que existan tanto valores monetarios como cantidad de pasos
+                - Revisa que los totales estén claramente identificados con **'TOTAL'**
                 """)
     
     else:
@@ -1471,24 +1269,26 @@ def main():
         st.markdown("""
         **Proceso:**
         1. **Cargar Excel**: Archivo con hojas CHICORAL, GUALANDAY, COCORA
-        2. **Extracción automática**: Búsqueda inteligente de valores y pasos en cada hoja
+        2. **Extracción automática**: Búsqueda inteligente de "Total" en cada hoja
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características NUEVAS (v2.3):**
+        **Características NUEVAS (v2.2):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
-        - ✅ **Cantidad de Pasos**: Extrae y compara "CANTIDAD PASOS" entre Power BI y Excel
-        - ✅ **Pasos por Peaje BI**: Extrae pasos individuales de la tabla "RESUMEN COMERCIOS"
-        - ✅ **Pasos por Peaje Excel**: Muestra cantidad de pasos individual por cada peaje
-        - ✅ **Comparación Completa**: Valida valores y pasos tanto totales como por peaje
+        - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
+        - ✅ **Pasos por Peaje**: Extrae cantidad de pasos de tabla "RESUMEN COMERCIOS"
+        - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
+        - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
+        - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
         
-        **Estructura esperada del Excel:**
-        - Cada hoja debe contener valores monetarios y cantidad de pasos
-        - Los datos suelen estar en las últimas filas
-        - Formato colombiano para valores monetarios (puntos para miles, coma para decimales)
+        **Características Mantenidas:**
+        - ✅ **Power BI Funcional**: Usa la extracción probada que funciona
+        - ✅ **Búsqueda inteligente**: Múltiples estrategias para encontrar valores
+        - ✅ **Conversión de moneda**: Maneja formatos colombianos e internacionales
+        - 📸 **Capturas del proceso**: Para verificación y debugging
         
         **Notas:**
-        - La extracción busca automáticamente en las últimas filas
+        - La extracción busca el total, cantidad de pasos y los valores individuales por peaje
         - Los valores deben estar claramente identificados en el Power BI
         - Las fechas deben coincidir exactamente con las del reporte Power BI
         """)
@@ -1498,4 +1298,4 @@ if __name__ == "__main__":
 
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.2</div>', unsafe_allow_html=True)
