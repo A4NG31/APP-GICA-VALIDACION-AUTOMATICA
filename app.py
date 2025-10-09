@@ -229,13 +229,17 @@ def click_conciliacion_date(driver, fecha_objetivo):
 def find_cantidad_pasos_card(driver):
     """Buscar la tarjeta/table 'CANTIDAD PASOS' a la derecha de 'VALOR A PAGAR A COMERCIO'"""
     try:
-        # Buscar por diferentes patrones del título
+        st.info("🔍 Buscando 'CANTIDAD PASOS' en el reporte...")
+        
+        # Buscar por diferentes patrones del título - MÁS ESPECÍFICO
         titulo_selectors = [
             "//*[contains(text(), 'CANTIDAD PASOS')]",
             "//*[contains(text(), 'Cantidad Pasos')]",
             "//*[contains(text(), 'CANTIDAD DE PASOS')]",
             "//*[contains(text(), 'Cantidad de Pasos')]",
             "//*[contains(text(), 'CANTIDAD') and contains(text(), 'PASOS')]",
+            "//*[text()='CANTIDAD PASOS']",
+            "//*[text()='Cantidad Pasos']",
         ]
         
         titulo_element = None
@@ -245,33 +249,46 @@ def find_cantidad_pasos_card(driver):
                 for elemento in elementos:
                     if elemento.is_displayed():
                         texto = elemento.text.strip()
-                        if "CANTIDAD" in texto.upper() and "PASOS" in texto.upper():
+                        if any(palabra in texto.upper() for palabra in ['CANTIDAD', 'PASOS']):
                             titulo_element = elemento
+                            st.success(f"✅ Título encontrado: {texto}")
                             break
                 if titulo_element:
                     break
-            except:
+            except Exception as e:
                 continue
         
         if not titulo_element:
+            st.warning("❌ No se encontró el título 'CANTIDAD PASOS'")
             return None
         
-        # Buscar el valor numérico debajo del título
-        # Estrategia 1: Buscar en el mismo contenedor
+        # ESTRATEGIA MEJORADA: Buscar en el mismo contenedor o contenedores cercanos
         try:
+            # Buscar en el contenedor padre
             container = titulo_element.find_element(By.XPATH, "./..")
-            numeric_elements = container.find_elements(By.XPATH, ".//*[contains(text(), ',') or contains(text(), '.')]")
             
-            for elem in numeric_elements:
+            # Buscar TODOS los elementos numéricos en el contenedor
+            all_elements = container.find_elements(By.XPATH, ".//*")
+            
+            for elem in all_elements:
                 texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and texto != titulo_element.text:
-                    # Verificar que sea un número (con comas o puntos)
-                    if len(texto) < 20 and not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                # Verificar si es un número (contiene dígitos pero no texto largo)
+                if (texto and 
+                    any(char.isdigit() for char in texto) and 
+                    len(texto) < 20 and 
+                    texto != titulo_element.text and
+                    not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                    
+                    # Verificar formato numérico (puede tener comas, puntos, pero ser principalmente números)
+                    digit_count = sum(char.isdigit() for char in texto)
+                    if digit_count >= 1:  # Al menos un dígito
+                        st.success(f"✅ Valor numérico encontrado: {texto}")
                         return texto
-        except:
-            pass
+                        
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 1 falló: {e}")
         
-        # Estrategia 2: Buscar en elementos hermanos
+        # ESTRATEGIA 2: Buscar elementos hermanos específicamente
         try:
             parent = titulo_element.find_element(By.XPATH, "./..")
             siblings = parent.find_elements(By.XPATH, "./*")
@@ -279,24 +296,69 @@ def find_cantidad_pasos_card(driver):
             for sibling in siblings:
                 if sibling != titulo_element:
                     texto = sibling.text.strip()
-                    if texto and any(char.isdigit() for char in texto) and len(texto) < 20:
-                        if not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                        
+                        digit_count = sum(char.isdigit() for char in texto)
+                        if digit_count >= 1:
+                            st.success(f"✅ Valor encontrado en hermano: {texto}")
                             return texto
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 2 falló: {e}")
         
-        # Estrategia 3: Buscar debajo del título
+        # ESTRATEGIA 3: Buscar elementos que siguen al título
         try:
-            following_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'CANTIDAD PASOS')]/following::*")
+            # Buscar elementos que están después del título
+            following_elements = driver.find_elements(By.XPATH, f"//*[contains(text(), 'CANTIDAD PASOS')]/following::*")
             
-            for elem in following_elements[:10]:
+            for i, elem in enumerate(following_elements[:20]):  # Buscar en los primeros 20 elementos siguientes
                 texto = elem.text.strip()
-                if texto and any(char.isdigit() for char in texto) and len(texto) < 50:
-                    if not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO']):
+                if (texto and 
+                    any(char.isdigit() for char in texto) and 
+                    len(texto) < 20 and
+                    not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO', 'CANTIDAD', 'PASOS'])):
+                    
+                    digit_count = sum(char.isdigit() for char in texto)
+                    if digit_count >= 1:
+                        st.success(f"✅ Valor encontrado en elemento siguiente {i}: {texto}")
                         return texto
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 3 falló: {e}")
         
+        # ESTRATEGIA 4: Buscar cerca de "VALOR A PAGAR A COMERCIO"
+        try:
+            # Encontrar "VALOR A PAGAR A COMERCIO" primero
+            valor_element = driver.find_element(By.XPATH, "//*[contains(text(), 'VALOR A PAGAR A COMERCIO')]")
+            if valor_element:
+                # Buscar elementos a la derecha o cerca
+                container_valor = valor_element.find_element(By.XPATH, "./..")
+                # Buscar en el mismo nivel jerárquico
+                all_nearby = container_valor.find_elements(By.XPATH, ".//*")
+                
+                for elem in all_nearby:
+                    texto = elem.text.strip()
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        'CANTIDAD' in texto.upper() and 'PASOS' in texto.upper()):
+                        # Este es el título, buscar el siguiente elemento numérico
+                        continue
+                    
+                    if (texto and 
+                        any(char.isdigit() for char in texto) and 
+                        len(texto) < 20 and
+                        not any(word in texto.upper() for word in ['TOTAL', 'VALOR', 'PAGAR', 'COMERCIO'])):
+                        
+                        digit_count = sum(char.isdigit() for char in texto)
+                        if digit_count >= 1:
+                            st.success(f"✅ Valor encontrado cerca de VALOR A PAGAR: {texto}")
+                            return texto
+        except Exception as e:
+            st.warning(f"⚠️ Estrategia 4 falló: {e}")
+        
+        st.error("❌ No se pudo encontrar el valor numérico de CANTIDAD PASOS")
         return None
         
     except Exception as e:
@@ -503,8 +565,14 @@ def extract_powerbi_data(fecha_objetivo):
         # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS"
+        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS" - CON MÁS DETALLE
+        st.info("🔍 Buscando tabla 'CANTIDAD PASOS'...")
         cantidad_pasos_texto = find_cantidad_pasos_card(driver)
+        
+        # Si no se encuentra, intentar una búsqueda más agresiva
+        if not cantidad_pasos_texto or cantidad_pasos_texto == 'No encontrado':
+            st.warning("🔄 Intentando búsqueda alternativa para CANTIDAD PASOS...")
+            cantidad_pasos_texto = buscar_cantidad_pasos_alternativo(driver)
         
         # 7. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
         valores_peajes = find_peaje_values(driver)
@@ -514,8 +582,8 @@ def extract_powerbi_data(fecha_objetivo):
         
         return {
             'valor_texto': valor_texto,
-            'cantidad_pasos_texto': cantidad_pasos_texto,  # NUEVO: Cantidad de pasos
-            'valores_peajes': valores_peajes,  # NUEVO: Valores por peaje
+            'cantidad_pasos_texto': cantidad_pasos_texto or 'No encontrado',
+            'valores_peajes': valores_peajes,
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
                 'seleccion': 'powerbi_despues_seleccion.png',
@@ -528,6 +596,35 @@ def extract_powerbi_data(fecha_objetivo):
         return None
     finally:
         driver.quit()
+
+# Función alternativa de búsqueda
+def buscar_cantidad_pasos_alternativo(driver):
+    """Búsqueda alternativa y más agresiva para CANTIDAD PASOS"""
+    try:
+        # Buscar todos los elementos que contengan números
+        all_elements = driver.find_elements(By.XPATH, "//*[text()]")
+        
+        for elem in all_elements:
+            texto = elem.text.strip()
+            # Buscar patrones numéricos que parezcan cantidades (4,452, 4452, etc.)
+            if (texto and 
+                any(char.isdigit() for char in texto) and
+                3 <= len(texto) <= 10 and
+                not any(word in texto.upper() for word in ['$', 'TOTAL', 'VALOR', 'PAGAR', 'COMERCIO'])):
+                
+                # Verificar si es un número con formato de cantidad (puede tener comas)
+                clean_text = texto.replace(',', '').replace('.', '')
+                if clean_text.isdigit():
+                    num_value = int(clean_text)
+                    # Verificar si está en un rango razonable para cantidad de pasos
+                    if 100 <= num_value <= 999999:
+                        st.success(f"✅ Valor alternativo encontrado: {texto}")
+                        return texto
+        
+        return None
+    except Exception as e:
+        st.warning(f"⚠️ Búsqueda alternativa falló: {e}")
+        return None
 
 # ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
 
