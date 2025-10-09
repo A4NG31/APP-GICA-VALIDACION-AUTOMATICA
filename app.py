@@ -503,14 +503,18 @@ def extract_powerbi_data(fecha_objetivo):
         # 5. Buscar tarjeta "VALOR A PAGAR A COMERCIO" y extraer valor
         valor_texto = find_valor_a_pagar_comercio_card(driver)
         
-        # 6. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
+        # 6. NUEVA FUNCIONALIDAD: Extraer "CANTIDAD PASOS"
+        cantidad_pasos_texto = find_cantidad_pasos_card(driver)
+        
+        # 7. NUEVA FUNCIONALIDAD: Extraer valores por peaje (SIN MENSAJES)
         valores_peajes = find_peaje_values(driver)
         
-        # 7. Tomar screenshot final
+        # 8. Tomar screenshot final
         driver.save_screenshot("powerbi_final.png")
         
         return {
             'valor_texto': valor_texto,
+            'cantidad_pasos_texto': cantidad_pasos_texto,  # NUEVO: Cantidad de pasos
             'valores_peajes': valores_peajes,  # NUEVO: Valores por peaje
             'screenshots': {
                 'inicial': 'powerbi_inicial.png',
@@ -774,7 +778,7 @@ def main():
     - Comparar con Power BI (Total y por Peaje)
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.0 - Con Comparación por Peaje
+    **Versión:** v2.1 - Con Cantidad de Pasos
     """)
     
     # Estado del sistema
@@ -859,11 +863,26 @@ def main():
                     
                     if resultados and resultados.get('valor_texto'):
                         valor_powerbi_texto = resultados['valor_texto']
+                        cantidad_pasos_texto = resultados.get('cantidad_pasos_texto', 'No encontrado')
                         valores_peajes_powerbi = resultados.get('valores_peajes', {})
                         
                         st.markdown("---")
                         
-                        # ========== SECCIÓN 4: RESULTADOS - COMPARACIÓN TOTAL ==========
+                        # ========== SECCIÓN 4: RESULTADOS - VALORES POWER BI ==========
+                        st.markdown("### 📊 Valores Extraídos de Power BI")
+                        
+                        # Mostrar VALOR A PAGAR A COMERCIO y CANTIDAD PASOS
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.metric("💰 VALOR A PAGAR A COMERCIO", valor_powerbi_texto)
+                        
+                        with col2:
+                            st.metric("👣 CANTIDAD DE PASOS BI", cantidad_pasos_texto)
+                        
+                        st.markdown("---")
+                        
+                        # ========== SECCIÓN 5: RESULTADOS - COMPARACIÓN TOTAL ==========
                         st.markdown("### 💰 Validación: Total General")
                         
                         # Comparar valores totales
@@ -891,7 +910,7 @@ def main():
                         
                         st.markdown("---")
                         
-                        # ========== SECCIÓN 5: RESULTADOS - COMPARACIÓN POR PEAJE ==========
+                        # ========== SECCIÓN 6: RESULTADOS - COMPARACIÓN POR PEAJE ==========
                         st.markdown("### 🏢 Validación: Por Peaje")
                         
                         # Comparar valores por peaje
@@ -923,7 +942,7 @@ def main():
                         
                         st.markdown("---")
                         
-                        # ========== SECCIÓN 6: RESUMEN FINAL ==========
+                        # ========== SECCIÓN 7: RESUMEN FINAL ==========
                         st.markdown("### 📋 Resultado Final")
                         
                         if coinciden and todos_coinciden:
@@ -949,6 +968,16 @@ def main():
                                 'Estado': '✅ Coincide' if coinciden else '❌ No coincide',
                                 'Diferencia': f"${abs(powerbi_numero - excel_numero):,.0f}".replace(",", "."),
                                 'Dif. %': f"{abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%" if excel_numero > 0 else "N/A"
+                            })
+                            
+                            # Agregar CANTIDAD DE PASOS a la tabla detallada
+                            resumen_data.append({
+                                'Concepto': 'CANTIDAD DE PASOS',
+                                'Power BI': cantidad_pasos_texto,
+                                'Excel': 'N/A',
+                                'Estado': 'ℹ️ Solo Power BI',
+                                'Diferencia': 'N/A',
+                                'Dif. %': 'N/A'
                             })
                             
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
@@ -1009,8 +1038,9 @@ def main():
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características NUEVAS (v2.0):**
+        **Características NUEVAS (v2.1):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
+        - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
         - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
         - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
@@ -1022,7 +1052,7 @@ def main():
         - 📸 **Capturas del proceso**: Para verificación y debugging
         
         **Notas:**
-        - La extracción busca el total y los valores individuales por peaje
+        - La extracción busca el total, cantidad de pasos y los valores individuales por peaje
         - Los valores deben estar claramente identificados en el Power BI
         - Las fechas deben coincidir exactamente con las del reporte Power BI
         """)
@@ -1032,4 +1062,4 @@ if __name__ == "__main__":
 
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.0</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.1</div>', unsafe_allow_html=True)
