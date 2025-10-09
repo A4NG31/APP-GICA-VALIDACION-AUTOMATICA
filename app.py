@@ -2,7 +2,6 @@ import os
 import sys
 
 
-
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
@@ -627,7 +626,7 @@ def buscar_cantidad_pasos_alternativo(driver):
         st.warning(f"⚠️ Búsqueda alternativa falló: {e}")
         return None
 
-# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
+# ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MEJORADAS) =====
 
 def extract_excel_values(uploaded_file):
     """Extraer valores monetarios Y cantidad de pasos de las 3 hojas del Excel - VERSIÓN MEJORADA"""
@@ -646,121 +645,90 @@ def extract_excel_values(uploaded_file):
                 valor_encontrado = None
                 pasos_encontrados = None
                 
-                # ESTRATEGIA MEJORADA: Buscar fila por fila desde el final
-                for i in range(len(df)-1, -1, -1):
+                # ESTRATEGIA MEJORADA: Buscar en las últimas filas donde suelen estar los totales
+                for i in range(len(df)-1, max(len(df)-15, -1), -1):
                     fila = df.iloc[i]
                     
-                    # Buscar fila que contenga "TOTAL" (para valores monetarios)
+                    # Buscar cualquier celda que contenga números significativos
                     for j, celda in enumerate(fila):
-                        if pd.notna(celda) and isinstance(celda, str) and 'TOTAL' in celda.upper().strip():
+                        if pd.notna(celda):
+                            texto = str(celda).strip()
                             
-                            st.info(f"🔍 Encontrado 'TOTAL' en hoja {hoja}, fila {i}, columna {j}")
-                            
-                            # ESTRATEGIA 1: Buscar valor monetario a la DERECHA del "TOTAL"
-                            for k in range(j+1, min(j+10, len(fila))):  # Buscar hasta 10 columnas a la derecha
-                                posible_valor = fila.iloc[k]
-                                if pd.notna(posible_valor):
-                                    valor_str = str(posible_valor)
-                                    # Verificar si parece un valor monetario
-                                    if (any(char.isdigit() for char in valor_str) and 
-                                        len(valor_str) > 3 and 
-                                        ('$' in valor_str or '.' in valor_str or ',' in valor_str)):
-                                        
-                                        # Procesar valor monetario
-                                        try:
-                                            valor_limpio = re.sub(r'[^\d.,]', '', valor_str)
-                                            # Formato colombiano
-                                            if '.' in valor_limpio and ',' in valor_limpio:
-                                                valor_limpio = valor_limpio.replace('.', '').replace(',', '.')
-                                            elif '.' in valor_limpio and valor_limpio.count('.') > 1:
-                                                valor_limpio = valor_limpio.replace('.', '')
-                                            elif ',' in valor_limpio:
-                                                if valor_limpio.count(',') == 1 and len(valor_limpio.split(',')[-1]) == 2:
-                                                    valor_limpio = valor_limpio.replace(',', '.')
-                                                else:
-                                                    valor_limpio = valor_limpio.replace(',', '')
-                                            
-                                            valor_numerico = float(valor_limpio)
-                                            if valor_numerico >= 1000:
-                                                valor_encontrado = valor_numerico
-                                                st.success(f"✅ Valor monetario encontrado en {hoja}: {valor_str} -> {valor_numerico:,.0f}")
-                                                break
-                                        except:
-                                            continue
-                            
-                            # ESTRATEGIA 2: Buscar cantidad de pasos a la IZQUIERDA del "TOTAL"
-                            for k in range(max(0, j-10), j):  # Buscar hasta 10 columnas a la izquierda
-                                posible_pasos = fila.iloc[k]
-                                if pd.notna(posible_pasos):
-                                    pasos_str = str(posible_pasos)
-                                    # Verificar si es un número válido para pasos
-                                    if any(char.isdigit() for char in pasos_str):
-                                        # Limpiar y convertir
-                                        pasos_limpio = re.sub(r'[^\d]', '', pasos_str)
-                                        if pasos_limpio and pasos_limpio.isdigit():
-                                            num_pasos = int(pasos_limpio)
-                                            # Rango razonable para pasos
-                                            if 100 <= num_pasos <= 99999:  # Ajustado para tus ejemplos
-                                                pasos_encontrados = num_pasos
-                                                st.success(f"✅ Pasos encontrados en {hoja}: {pasos_str} -> {num_pasos}")
-                                                break
-                            
-                            break  # Salir del loop de columnas una vez encontrado el TOTAL
-                
-                # ESTRATEGIA ALTERNATIVA: Si no se encontró con "TOTAL", buscar patrones específicos
-                if pasos_encontrados is None:
-                    st.warning(f"🔄 Búsqueda alternativa para pasos en {hoja}")
-                    # Buscar números que parezcan cantidades de pasos en las últimas filas
-                    for i in range(len(df)-1, max(len(df)-20, -1), -1):
-                        fila = df.iloc[i]
-                        for j, celda in enumerate(fila):
-                            if pd.notna(celda):
-                                texto = str(celda).strip()
-                                # Buscar números en el rango de pasos (3-5 dígitos)
-                                if (any(char.isdigit() for char in texto) and 
-                                    3 <= len(texto) <= 6 and
-                                    not any(word in texto.upper() for word in ['TOTAL', 'VALOR', '$', 'PAGAR', 'COMERCIO'])):
+                            # ESTRATEGIA PARA VALORES MONETARIOS (más permisiva)
+                            if (any(char.isdigit() for char in texto) and 
+                                len(texto) > 4 and  # Valores monetarios son más largos
+                                ('$' in texto or ',' in texto or '.' in texto)):
+                                
+                                try:
+                                    # Procesar valor monetario
+                                    valor_limpio = re.sub(r'[^\d.,]', '', texto)
+                                    # Manejar formato colombiano
+                                    if '.' in valor_limpio and ',' in valor_limpio:
+                                        valor_limpio = valor_limpio.replace('.', '').replace(',', '.')
+                                    elif '.' in valor_limpio and valor_limpio.count('.') > 1:
+                                        valor_limpio = valor_limpio.replace('.', '')
+                                    elif ',' in valor_limpio:
+                                        if valor_limpio.count(',') == 1 and len(valor_limpio.split(',')[-1]) == 2:
+                                            valor_limpio = valor_limpio.replace(',', '.')
+                                        else:
+                                            valor_limpio = valor_limpio.replace(',', '')
                                     
-                                    # Verificar si es principalmente numérico
-                                    digit_count = sum(char.isdigit() for char in texto)
-                                    if digit_count >= len(texto) * 0.7:  # Al menos 70% dígitos
-                                        pasos_limpio = re.sub(r'[^\d]', '', texto)
-                                        if pasos_limpio and pasos_limpio.isdigit():
-                                            num_pasos = int(pasos_limpio)
-                                            if 100 <= num_pasos <= 99999:
-                                                pasos_encontrados = num_pasos
-                                                st.success(f"✅ Pasos encontrados (alternativa) en {hoja}: {texto} -> {num_pasos}")
-                                                break
-                        if pasos_encontrados is not None:
-                            break
+                                    valor_numerico = float(valor_limpio)
+                                    if valor_numerico >= 1000:  # Valores monetarios son grandes
+                                        valor_encontrado = valor_numerico
+                                        st.success(f"✅ Valor monetario encontrado en {hoja}: {texto} -> {valor_numerico:,.0f}")
+                                        break
+                                except:
+                                    continue
+                            
+                            # ESTRATEGIA PARA PASOS (ya funciona bien)
+                            elif (any(char.isdigit() for char in texto) and 
+                                  3 <= len(texto) <= 6 and  # Pasos son números más cortos
+                                  not any(word in texto.upper() for word in ['TOTAL', 'VALOR', '$', 'PAGAR', 'COMERCIO'])):
+                                
+                                # Verificar si es principalmente numérico
+                                digit_count = sum(char.isdigit() for char in texto)
+                                if digit_count >= len(texto) * 0.7:  # Al menos 70% dígitos
+                                    pasos_limpio = re.sub(r'[^\d]', '', texto)
+                                    if pasos_limpio and pasos_limpio.isdigit():
+                                        num_pasos = int(pasos_limpio)
+                                        if 100 <= num_pasos <= 99999:  # Rango para pasos
+                                            pasos_encontrados = num_pasos
+                                            st.success(f"✅ Pasos encontrados en {hoja}: {texto} -> {num_pasos}")
+                                            # No break aquí, seguir buscando valor monetario
+                    
+                    # Si encontramos ambos, salir del loop de filas
+                    if valor_encontrado is not None and pasos_encontrados is not None:
+                        break
                 
-                # ESTRATEGIA FINAL: Buscar en columnas específicas si aún no se encontró
-                if pasos_encontrados is None:
-                    st.warning(f"🔍 Búsqueda en columnas específicas para {hoja}")
-                    # Suponer que los pasos están en una columna antes de los valores monetarios
-                    for i in range(len(df)-1, max(len(df)-15, -1), -1):
+                # ESTRATEGIA ALTERNATIVA PARA VALORES MONETARIOS si no se encontraron
+                if valor_encontrado is None:
+                    st.warning(f"🔄 Búsqueda alternativa para valor monetario en {hoja}")
+                    # Buscar en columnas específicas donde suelen estar los valores
+                    for i in range(len(df)-1, max(len(df)-10, -1), -1):
                         fila = df.iloc[i]
-                        # Buscar valores monetarios primero
-                        for j in range(len(fila)):
+                        # Buscar en las últimas columnas (derecha)
+                        for j in range(len(fila)-1, max(len(fila)-5, -1), -1):
                             celda = fila.iloc[j]
                             if pd.notna(celda):
-                                texto = str(celda)
-                                if any(char.isdigit() for char in texto) and ('$' in texto or len(texto) > 6):
-                                    # Encontrado posible valor monetario, buscar pasos a la izquierda
-                                    for k in range(max(0, j-5), j):
-                                        celda_pasos = fila.iloc[k]
-                                        if pd.notna(celda_pasos):
-                                            texto_pasos = str(celda_pasos).strip()
-                                            if any(char.isdigit() for char in texto_pasos) and 3 <= len(texto_pasos) <= 6:
-                                                pasos_limpio = re.sub(r'[^\d]', '', texto_pasos)
-                                                if pasos_limpio and pasos_limpio.isdigit():
-                                                    num_pasos = int(pasos_limpio)
-                                                    if 100 <= num_pasos <= 99999:
-                                                        pasos_encontrados = num_pasos
-                                                        st.success(f"✅ Pasos encontrados (columna específica) en {hoja}: {texto_pasos} -> {num_pasos}")
-                                                        break
-                                    break
-                        if pasos_encontrados is not None:
+                                texto = str(celda).strip()
+                                if (any(char.isdigit() for char in texto) and 
+                                    len(texto) > 4 and
+                                    (',' in texto or '.' in texto)):
+                                    
+                                    try:
+                                        valor_limpio = re.sub(r'[^\d.,]', '', texto)
+                                        # Intentar convertir
+                                        if '.' in valor_limpio and ',' in valor_limpio:
+                                            valor_limpio = valor_limpio.replace('.', '').replace(',', '.')
+                                        valor_numerico = float(valor_limpio)
+                                        if valor_numerico >= 1000:
+                                            valor_encontrado = valor_numerico
+                                            st.success(f"✅ Valor monetario (alternativa) en {hoja}: {texto} -> {valor_numerico:,.0f}")
+                                            break
+                                    except:
+                                        continue
+                        if valor_encontrado is not None:
                             break
                 
                 # Asignar valores encontrados o defaults
@@ -791,7 +759,7 @@ def extract_excel_values(uploaded_file):
     except Exception as e:
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, 0, {}, 0
-        
+
 # ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS) =====
 
 def convert_currency_to_float(currency_string):
@@ -909,40 +877,6 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
     
     return comparaciones
 
-def debug_excel_structure(uploaded_file):
-    """Función para debug: mostrar la estructura real del Excel"""
-    try:
-        st.markdown("### 🔍 DEBUG: Estructura del Excel")
-        
-        hojas = ['CHICORAL', 'GUALANDAY', 'COCORA']
-        
-        for hoja in hojas:
-            try:
-                df = pd.read_excel(uploaded_file, sheet_name=hoja, header=None)
-                st.markdown(f"#### 📑 Hoja: {hoja}")
-                
-                # Mostrar las últimas 10 filas (donde suelen estar los totales)
-                st.write(f"**Últimas 10 filas de {hoja}:**")
-                ultimas_filas = df.tail(10)
-                
-                # Crear una visualización mejorada
-                for i, (idx, fila) in enumerate(ultimas_filas.iterrows()):
-                    fila_info = []
-                    for j, valor in enumerate(fila):
-                        if pd.notna(valor):
-                            fila_info.append(f"Col{j}: '{str(valor).strip()}'")
-                    
-                    if fila_info:  # Solo mostrar filas con datos
-                        st.write(f"Fila {idx}: {', '.join(fila_info)}")
-                
-                st.markdown("---")
-                
-            except Exception as e:
-                st.error(f"❌ Error en hoja {hoja}: {e}")
-                
-    except Exception as e:
-        st.error(f"❌ Error en debug: {e}")
-
 # ===== INTERFAZ PRINCIPAL =====
 
 def main():
@@ -976,15 +910,24 @@ def main():
     )
     
     if uploaded_file is not None:
-        # Agregar botón de DEBUG
-        if st.checkbox("🔍 Mostrar estructura del Excel (DEBUG)"):
-            debug_excel_structure(uploaded_file)
+        # Extraer fecha del nombre del archivo (sin mostrar nada)
+        fecha_desde_archivo = None
+        try:
+            import re
+            patron_fecha = r'(\d{4})-(\d{2})-(\d{2})'
+            match = re.search(patron_fecha, uploaded_file.name)
+            
+            if match:
+                year, month, day = match.groups()
+                fecha_desde_archivo = pd.to_datetime(f"{year}-{month}-{day}")
+        except:
+            pass
         
         # Extraer valores del Excel CON SPINNER
         with st.spinner("📊 Procesando archivo Excel..."):
             valores, total_general, pasos, total_pasos = extract_excel_values(uploaded_file)
         
-        if total_general > 0:
+        if total_general > 0 or total_pasos > 0:
             # ========== MOSTRAR SOLO RESUMEN DE VALORES ==========
             st.markdown("### 📊 Valores Extraídos del Excel")
             
@@ -1171,7 +1114,7 @@ def main():
                         st.markdown("### 📋 Resultado Final")
                         
                         validacion_completa = coinciden and coinciden_pasos and todos_coinciden
-                        validacion_parcial = coinciden or coinciden_pasos or todos_coinciden
+                        validacion_parcial = (coinciden or coinciden_pasos or todos_coinciden) and not validacion_completa
                         
                         if validacion_completa:
                             st.success("🎉 **VALIDACIÓN EXITOSA** - Todos los valores coinciden")
@@ -1180,6 +1123,28 @@ def main():
                             st.warning("⚠️ **VALIDACIÓN PARCIAL** - Algunos valores coinciden, otros no")
                         else:
                             st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en todos los valores")
+                        
+                        # Mostrar detalles específicos
+                        st.markdown("#### 📈 Detalles de Validación:")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            if coinciden:
+                                st.success("✅ Valores monetarios: COINCIDEN")
+                            else:
+                                st.error("❌ Valores monetarios: NO COINCIDEN")
+                        
+                        with col2:
+                            if coinciden_pasos:
+                                st.success("✅ Cantidad de pasos: COINCIDEN")
+                            else:
+                                st.error("❌ Cantidad de pasos: NO COINCIDEN")
+                        
+                        with col3:
+                            if todos_coinciden:
+                                st.success("✅ Valores por peaje: COINCIDEN")
+                            else:
+                                st.error("❌ Valores por peaje: NO COINCIDEN")
                         
                         # Botón para ver detalles adicionales
                         with st.expander("🔍 Ver Detalles Completos y Capturas"):
@@ -1261,8 +1226,8 @@ def main():
                 st.markdown("""
                 - Verifica que las hojas se llamen **CHICORAL**, **GUALANDAY**, **COCORA**
                 - Asegúrate de que haya valores numéricos en las celdas de total
-                - Revisa que los totales estén claramente identificados con **'TOTAL'**
-                - Verifica que la columna de **PASOS** esté a la izquierda de los valores monetarios
+                - Revisa que los totales estén claramente identificados
+                - Verifica que existan tanto valores monetarios como cantidad de pasos
                 """)
     
     else:
@@ -1274,7 +1239,7 @@ def main():
         st.markdown("""
         **Proceso:**
         1. **Cargar Excel**: Archivo con hojas CHICORAL, GUALANDAY, COCORA
-        2. **Extracción automática**: Búsqueda inteligente de "Total" y "Pasos" en cada hoja
+        2. **Extracción automática**: Búsqueda inteligente de valores y pasos en cada hoja
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
@@ -1286,12 +1251,12 @@ def main():
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones
         
         **Estructura esperada del Excel:**
-        - Columna IZQUIERDA: Cantidad de Pasos (ej: 1,452)
-        - Columna DERECHA: Valor Monetario (ej: $1,452,000)
-        - Fila "TOTAL" identificada claramente
+        - Cada hoja debe contener valores monetarios y cantidad de pasos
+        - Los datos suelen estar en las últimas filas
+        - Formato colombiano para valores monetarios (puntos para miles, coma para decimales)
         
         **Notas:**
-        - La extracción busca automáticamente pasos a la izquierda de los valores monetarios
+        - La extracción busca automáticamente en las últimas filas
         - Los valores deben estar claramente identificados en el Power BI
         - Las fechas deben coincidir exactamente con las del reporte Power BI
         """)
