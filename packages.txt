@@ -1,6 +1,6 @@
-chromium=141.0.7390.54-1~deb12u1
-chromium-driver=141.0.7390.54-1~deb12u1
-chromium-sandbox=141.0.7390.54-1~deb12u1
+chromium
+chromium-driver
+chromium-sandbox
 libasound2
 libatk-bridge2.0-0
 libatk1.0-0
