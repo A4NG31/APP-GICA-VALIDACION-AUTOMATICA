@@ -92,7 +92,7 @@ st.markdown("""
 }
 
 /* ===== Encabezados del sidebar ===== */
-[data-testid="stSidebar"] h1, 
+[data.testid="stSidebar"] h1, 
 [data-testid="stSidebar"] h2, 
 [data-testid="stSidebar"] h3 {
     color: #00CFFF !important;
@@ -537,16 +537,17 @@ def find_peaje_values(driver):
 
 def find_resumen_comercios_table(driver):
     """
-    NUEVA FUNCIÓN: Buscar la tabla "RESUMEN COMERCIOS" y extraer la cantidad de pasos por peaje
+    FUNCIÓN MEJORADA: Buscar específicamente la tabla "RESUMEN COMERCIOS" y extraer Cant Pasos por peaje
     """
     try:
-        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS'...")
+        st.info("🔍 Buscando tabla 'RESUMEN COMERCIOS' para extraer cantidad de pasos...")
         
-        # Buscar la tabla por su título
+        # Buscar la tabla por su título con múltiples patrones
         titulo_selectors = [
             "//*[contains(text(), 'RESUMEN COMERCIOS')]",
             "//*[contains(text(), 'Resumen Comercios')]",
             "//*[contains(text(), 'RESUMEN') and contains(text(), 'COMERCIOS')]",
+            "//*[contains(text(), 'Resumen') and contains(text(), 'Comercios')]",
         ]
         
         titulo_element = None
@@ -567,54 +568,97 @@ def find_resumen_comercios_table(driver):
             st.warning("❌ No se encontró la tabla 'RESUMEN COMERCIOS'")
             return None
         
-        # Buscar la tabla completa
+        # ESTRATEGIA MEJORADA: Buscar la estructura de tabla completa
         try:
-            # Buscar la tabla que contiene el título
-            tabla_container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'table') or contains(@class, 'pivotTable') or contains(@role, 'grid')][1]")
+            # Buscar el contenedor de la tabla
+            tabla_container = titulo_element.find_element(By.XPATH, "./ancestor::*[contains(@class, 'table') or contains(@class, 'pivotTable') or contains(@role, 'grid') or contains(@class, 'visual')][1]")
             
             # Buscar todas las filas de la tabla
             filas = tabla_container.find_elements(By.XPATH, ".//tr")
             
             pasos_data = {}
+            encabezados = []
             
-            for fila in filas:
+            # Primero identificar la columna "Cant Pasos"
+            for i, fila in enumerate(filas):
                 celdas = fila.find_elements(By.XPATH, ".//td | .//th")
                 texto_celdas = [celda.text.strip() for celda in celdas if celda.text.strip()]
                 
-                # Buscar filas que contengan nombres de peajes
-                for i, texto in enumerate(texto_celdas):
+                # Buscar encabezados que contengan "Cant Pasos"
+                for j, texto in enumerate(texto_celdas):
+                    if 'CANT PASOS' in texto.upper() or 'CANTIDAD PASOS' in texto.upper() or 'CANT. PASOS' in texto.upper():
+                        columna_pasos = j
+                        st.success(f"✅ Columna 'Cant Pasos' encontrada en posición {j}")
+                        break
+                
+                # Buscar filas con nombres de peajes
+                for j, texto in enumerate(texto_celdas):
                     texto_upper = texto.upper()
                     
-                    # Verificar si es un peaje conocido
-                    if 'CHICORAL' in texto_upper:
-                        # Buscar la columna "Cant Pasos" - asumimos que está a la derecha
-                        if i + 1 < len(texto_celdas):
-                            valor_pasos = texto_celdas[i + 1]
-                            if any(char.isdigit() for char in valor_pasos):
-                                pasos_data['CHICORAL'] = valor_pasos
-                                st.success(f"✅ Pasos CHICORAL: {valor_pasos}")
+                    # Buscar peajes específicos
+                    if 'CHICORAL' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
+                        # Extraer valor de la columna Cant Pasos
+                        if j < len(texto_celdas) - 1:  # Si hay más columnas a la derecha
+                            # Buscar en la misma fila, asumiendo que Cant Pasos está a la derecha
+                            for k in range(j + 1, len(texto_celdas)):
+                                valor_pasos = texto_celdas[k]
+                                if any(char.isdigit() for char in valor_pasos):
+                                    pasos_data['CHICORAL'] = valor_pasos
+                                    st.success(f"✅ Pasos CHICORAL: {valor_pasos}")
+                                    break
                     
-                    elif 'COCORA' in texto_upper:
-                        if i + 1 < len(texto_celdas):
-                            valor_pasos = texto_celdas[i + 1]
-                            if any(char.isdigit() for char in valor_pasos):
-                                pasos_data['COCORA'] = valor_pasos
-                                st.success(f"✅ Pasos COCORA: {valor_pasos}")
+                    elif 'COCORA' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
+                        if j < len(texto_celdas) - 1:
+                            for k in range(j + 1, len(texto_celdas)):
+                                valor_pasos = texto_celdas[k]
+                                if any(char.isdigit() for char in valor_pasos):
+                                    pasos_data['COCORA'] = valor_pasos
+                                    st.success(f"✅ Pasos COCORA: {valor_pasos}")
+                                    break
                     
-                    elif 'GUALANDAY' in texto_upper:
-                        if i + 1 < len(texto_celdas):
-                            valor_pasos = texto_celdas[i + 1]
-                            if any(char.isdigit() for char in valor_pasos):
-                                pasos_data['GUALANDAY'] = valor_pasos
-                                st.success(f"✅ Pasos GUALANDAY: {valor_pasos}")
+                    elif 'GUALANDAY' in texto_upper and not any(x in texto_upper for x in ['TOTAL', 'SUMA']):
+                        if j < len(texto_celdas) - 1:
+                            for k in range(j + 1, len(texto_celdas)):
+                                valor_pasos = texto_celdas[k]
+                                if any(char.isdigit() for char in valor_pasos):
+                                    pasos_data['GUALANDAY'] = valor_pasos
+                                    st.success(f"✅ Pasos GUALANDAY: {valor_pasos}")
+                                    break
+            
+            # ESTRATEGIA ALTERNATIVA: Si no encontramos por nombres, buscar por estructura de tabla
+            if not pasos_data:
+                st.info("🔄 Intentando estrategia alternativa para extraer pasos...")
+                
+                # Buscar todas las filas que contengan números (posibles valores de pasos)
+                for fila in filas:
+                    celdas = fila.find_elements(By.XPATH, ".//td")
+                    if len(celdas) >= 2:  # Al menos 2 columnas
+                        # Asumir que la primera columna es el nombre y la segunda es el valor
+                        nombre_celda = celdas[0].text.strip().upper() if len(celdas) > 0 else ""
+                        valor_celda = celdas[1].text.strip() if len(celdas) > 1 else ""
+                        
+                        if any(char.isdigit() for char in valor_celda) and valor_celda:
+                            if 'CHICORAL' in nombre_celda:
+                                pasos_data['CHICORAL'] = valor_celda
+                            elif 'COCORA' in nombre_celda:
+                                pasos_data['COCORA'] = valor_celda
+                            elif 'GUALANDAY' in nombre_celda:
+                                pasos_data['GUALANDAY'] = valor_celda
             
             # Calcular total si tenemos todos los valores
             if len(pasos_data) == 3:
                 try:
-                    total = sum(int(str(valor).replace(',', '').replace('.', '')) for valor in pasos_data.values())
+                    total = 0
+                    for peaje, valor in pasos_data.items():
+                        # Limpiar y convertir el valor
+                        valor_limpio = str(valor).replace('.', '').replace(',', '')
+                        if valor_limpio.isdigit():
+                            total += int(valor_limpio)
+                    
                     pasos_data['TOTAL'] = f"{total:,}".replace(",", ".")
                     st.success(f"✅ Total pasos calculado: {pasos_data['TOTAL']}")
-                except:
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudo calcular el total: {e}")
                     pasos_data['TOTAL'] = 'No calculable'
             
             return pasos_data if pasos_data else None
@@ -686,35 +730,6 @@ def extract_powerbi_data(fecha_objetivo):
         return None
     finally:
         driver.quit()
-
-# Función alternativa de búsqueda
-def buscar_cantidad_pasos_alternativo(driver):
-    """Búsqueda alternativa y más agresiva para CANTIDAD PASOS"""
-    try:
-        # Buscar todos los elementos que contengan números
-        all_elements = driver.find_elements(By.XPATH, "//*[text()]")
-        
-        for elem in all_elements:
-            texto = elem.text.strip()
-            # Buscar patrones numéricos que parezcan cantidades (4,452, 4452, etc.)
-            if (texto and 
-                any(char.isdigit() for char in texto) and
-                3 <= len(texto) <= 10 and
-                not any(word in texto.upper() for word in ['$', 'TOTAL', 'VALOR', 'PAGAR', 'COMERCIO'])):
-                
-                # Verificar si es un número con formato de cantidad (puede tener comas)
-                clean_text = texto.replace(',', '').replace('.', '')
-                if clean_text.isdigit():
-                    num_value = int(clean_text)
-                    # Verificar si está en un rango razonable para cantidad de pasos
-                    if 100 <= num_value <= 999999:
-                        st.success(f"✅ Valor alternativo encontrado: {texto}")
-                        return texto
-        
-        return None
-    except Exception as e:
-        st.warning(f"⚠️ Búsqueda alternativa falló: {e}")
-        return None
 
 # ===== FUNCIONES DE EXTRACCIÓN DE EXCEL (MANTENIDAS) =====
 
@@ -1071,7 +1086,7 @@ def main():
                         
                         # Mostrar tabla de pasos por peaje si está disponible
                         if pasos_por_peaje:
-                            st.markdown("#### 👣 Cantidad de Pasos por Peaje")
+                            st.markdown("#### 👣 Cantidad de Pasos por Peaje (RESUMEN COMERCIOS)")
                             
                             # Crear tabla para pasos por peaje
                             tabla_pasos_data = []
@@ -1091,6 +1106,8 @@ def main():
                             if tabla_pasos_data:
                                 df_pasos = pd.DataFrame(tabla_pasos_data)
                                 st.dataframe(df_pasos, use_container_width=True, hide_index=True)
+                        else:
+                            st.warning("⚠️ No se pudieron extraer los pasos por peaje de la tabla 'RESUMEN COMERCIOS'")
                         
                         st.markdown("---")
                         
