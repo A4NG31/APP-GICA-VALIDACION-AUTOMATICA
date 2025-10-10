@@ -1,7 +1,6 @@
 import os
 import sys
 
-
 # ===== CONFIGURACIÓN CRÍTICA PARA STREAMLIT CLOUD - MEJORADA =====
 os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 os.environ['STREAMLIT_CI'] = 'true'
@@ -1126,7 +1125,7 @@ def extract_excel_values_with_steps(uploaded_file):
         st.error(f"❌ Error procesando archivo Excel: {str(e)}")
         return {}, {}, 0, 0
 
-# ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS) =====
+# ===== FUNCIONES DE COMPARACIÓN (ACTUALIZADAS CON COMPARACIÓN DE PASOS) =====
 
 def convert_currency_to_float(currency_string):
     """Convierte string de moneda a float - OPTIMIZADO"""
@@ -1193,9 +1192,36 @@ def compare_values(valor_powerbi, valor_excel):
         st.error(f"❌ Error comparando valores: {e}")
         return None, None, str(valor_powerbi), False
 
-def compare_peajes(valores_powerbi_peajes, valores_excel):
+def compare_pasos(pasos_powerbi, pasos_excel):
+    """Comparar pasos de Power BI y Excel - NUEVA FUNCIÓN"""
+    try:
+        # Convertir pasos de Power BI a número
+        if isinstance(pasos_powerbi, str):
+            # Limpiar el string (quitar comas, puntos, etc.)
+            pasos_powerbi_limpio = re.sub(r'[^\d]', '', pasos_powerbi)
+            if pasos_powerbi_limpio:
+                powerbi_numero = int(pasos_powerbi_limpio)
+            else:
+                powerbi_numero = 0
+        else:
+            powerbi_numero = int(pasos_powerbi) if pasos_powerbi else 0
+        
+        # Pasos de Excel ya deberían ser números
+        excel_numero = int(pasos_excel) if pasos_excel else 0
+        
+        # Verificar coincidencia (tolerancia de 0 para pasos, deben ser exactos)
+        coinciden = powerbi_numero == excel_numero
+        diferencia = abs(powerbi_numero - excel_numero)
+        
+        return powerbi_numero, excel_numero, str(pasos_powerbi), coinciden, diferencia
+        
+    except Exception as e:
+        st.error(f"❌ Error comparando pasos: {e}")
+        return 0, 0, str(pasos_powerbi), False, 0
+
+def compare_peajes(valores_powerbi_peajes, valores_excel, pasos_excel):
     """
-    NUEVA FUNCIÓN: Comparar valores individuales por peaje
+    FUNCIÓN MEJORADA: Comparar valores individuales por peaje INCLUYENDO PASOS
     """
     comparaciones = {}
     
@@ -1210,15 +1236,18 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
                     'powerbi_numero': 0,
                     'excel_numero': valores_excel.get(peaje, 0),
                     'coinciden': False,
-                    'diferencia': valores_excel.get(peaje, 0)
+                    'diferencia': valores_excel.get(peaje, 0),
+                    'pasos_excel': pasos_excel.get(peaje, 0),
+                    'pasos_coinciden': False,
+                    'pasos_diferencia': pasos_excel.get(peaje, 0)
                 }
                 continue
             
-            # Convertir valores
+            # Convertir valores monetarios
             powerbi_numero = convert_currency_to_float(valor_powerbi_texto)
             excel_numero = valores_excel.get(peaje, 0)
             
-            # Comparar con tolerancia
+            # Comparar valores monetarios con tolerancia
             tolerancia = 0.01
             coinciden = abs(powerbi_numero - excel_numero) <= tolerancia
             diferencia = abs(powerbi_numero - excel_numero)
@@ -1228,7 +1257,10 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
                 'powerbi_numero': powerbi_numero,
                 'excel_numero': excel_numero,
                 'coinciden': coinciden,
-                'diferencia': diferencia
+                'diferencia': diferencia,
+                'pasos_excel': pasos_excel.get(peaje, 0),
+                'pasos_coinciden': False,  # Se llenará después con la comparación de pasos
+                'pasos_diferencia': 0
             }
             
         except Exception as e:
@@ -1238,10 +1270,50 @@ def compare_peajes(valores_powerbi_peajes, valores_excel):
                 'powerbi_numero': 0,
                 'excel_numero': valores_excel.get(peaje, 0),
                 'coinciden': False,
-                'diferencia': 0
+                'diferencia': 0,
+                'pasos_excel': pasos_excel.get(peaje, 0),
+                'pasos_coinciden': False,
+                'pasos_diferencia': 0
             }
     
     return comparaciones
+
+def compare_pasos_por_peaje(resumen_pasos_powerbi, pasos_excel):
+    """
+    NUEVA FUNCIÓN: Comparar pasos por peaje entre Power BI y Excel
+    """
+    comparaciones_pasos = {}
+    
+    for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+        try:
+            # Obtener pasos de Power BI
+            pasos_powerbi_texto = resumen_pasos_powerbi.get(peaje, '0')
+            pasos_excel_valor = pasos_excel.get(peaje, 0)
+            
+            # Comparar usando la función de comparación de pasos
+            powerbi_numero, excel_numero, powerbi_texto, coinciden, diferencia = compare_pasos(
+                pasos_powerbi_texto, pasos_excel_valor
+            )
+            
+            comparaciones_pasos[peaje] = {
+                'powerbi_texto': powerbi_texto,
+                'powerbi_numero': powerbi_numero,
+                'excel_numero': excel_numero,
+                'coinciden': coinciden,
+                'diferencia': diferencia
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error comparando pasos de {peaje}: {e}")
+            comparaciones_pasos[peaje] = {
+                'powerbi_texto': 'Error',
+                'powerbi_numero': 0,
+                'excel_numero': pasos_excel.get(peaje, 0),
+                'coinciden': False,
+                'diferencia': 0
+            }
+    
+    return comparaciones_pasos
 
 # ===== INTERFAZ PRINCIPAL =====
 
@@ -1259,7 +1331,7 @@ def main():
     - Comparar con Power BI (Total, Pasos y por Peaje)
     
     **Estado:** ✅ ChromeDriver Compatible
-    **Versión:** v2.4 - Con Pasos por Peaje MEJORADO
+    **Versión:** v2.5 - Con Comparación de Pasos MEJORADA
     """)
     
     # Estado del sistema
@@ -1420,35 +1492,79 @@ def main():
                                     st.error("DIFERENCIA")
                                     st.caption(f"${diferencia:,.0f}".replace(",", "."))
                         
+                        # ========== NUEVA COMPARACIÓN: TOTAL DE PASOS ==========
+                        st.markdown("### 👣 Validación: Total de Pasos")
+                        
+                        # Comparar total de pasos
+                        if cantidad_pasos_texto and cantidad_pasos_texto != 'No encontrado':
+                            powerbi_pasos_num, excel_pasos_num, powerbi_pasos_texto, pasos_coinciden, pasos_diferencia = compare_pasos(
+                                cantidad_pasos_texto, total_pasos
+                            )
+                            
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                            
+                            with col1:
+                                st.metric("📊 Power BI", powerbi_pasos_texto)
+                            with col2:
+                                st.metric("📁 Excel", f"{total_pasos:,}")
+                            with col3:
+                                if pasos_coinciden:
+                                    st.markdown("#### ✅")
+                                    st.success("COINCIDE")
+                                else:
+                                    st.markdown("#### ❌")
+                                    st.error("DIFERENCIA")
+                                    st.caption(f"{pasos_diferencia:,}")
+                        else:
+                            st.warning("⚠️ No se pudo extraer el total de pasos de Power BI para comparar")
+                        
                         st.markdown("---")
                         
                         # ========== SECCIÓN 6: RESULTADOS - COMPARACIÓN POR PEAJE ==========
-                        st.markdown("### 🏢 Validación: Por Peaje")
+                        st.markdown("### 🏢 Validación: Por Peaje (Valores y Pasos)")
                         
                         # Comparar valores por peaje
-                        comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores)
+                        comparaciones_peajes = compare_peajes(valores_peajes_powerbi, valores, pasos)
+                        
+                        # Comparar pasos por peaje
+                        if resumen_pasos:
+                            comparaciones_pasos = compare_pasos_por_peaje(resumen_pasos, pasos)
+                            
+                            # Actualizar las comparaciones de peajes con los resultados de pasos
+                            for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
+                                if peaje in comparaciones_pasos:
+                                    comparaciones_peajes[peaje]['pasos_coinciden'] = comparaciones_pasos[peaje]['coinciden']
+                                    comparaciones_peajes[peaje]['pasos_diferencia'] = comparaciones_pasos[peaje]['diferencia']
                         
                         # Crear tabla resumen compacta
                         tabla_data = []
-                        todos_coinciden = True
+                        todos_coinciden_valores = True
+                        todos_coinciden_pasos = True
                         
                         for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                             comp = comparaciones_peajes[peaje]
                             
-                            estado_icono = "✅" if comp['coinciden'] else "❌"
-                            diferencia_texto = "$0" if comp['coinciden'] else f"${comp['diferencia']:,.0f}".replace(",", ".")
+                            estado_icono_valor = "✅" if comp['coinciden'] else "❌"
+                            estado_icono_pasos = "✅" if comp.get('pasos_coinciden', False) else "❌"
+                            
+                            diferencia_valor_texto = "$0" if comp['coinciden'] else f"${comp['diferencia']:,.0f}".replace(",", ".")
+                            diferencia_pasos_texto = "0" if comp.get('pasos_coinciden', False) else f"{comp.get('pasos_diferencia', 0):,}"
                             
                             tabla_data.append({
-                                '': estado_icono,
+                                '': estado_icono_valor,
                                 'Peaje': peaje,
-                                'Power BI': comp['powerbi_texto'],
+                                'Power BI (Valor)': comp['powerbi_texto'],
                                 'Excel (Valor)': f"${comp['excel_numero']:,.0f}".replace(",", "."),
-                                'Excel (Pasos)': f"{pasos[peaje]:,}".replace(",", "."),
-                                'Dif.': diferencia_texto
+                                'Dif. Valor': diferencia_valor_texto,
+                                'Power BI (Pasos)': resumen_pasos.get(peaje, 'N/A') if resumen_pasos else 'N/A',
+                                'Excel (Pasos)': f"{comp['pasos_excel']:,}",
+                                'Dif. Pasos': diferencia_pasos_texto
                             })
                             
                             if not comp['coinciden']:
-                                todos_coinciden = False
+                                todos_coinciden_valores = False
+                            if not comp.get('pasos_coinciden', False):
+                                todos_coinciden_pasos = False
                         
                         df_comparacion = pd.DataFrame(tabla_data)
                         st.dataframe(df_comparacion, use_container_width=True, hide_index=True)
@@ -1458,15 +1574,16 @@ def main():
                         # ========== SECCIÓN 7: RESUMEN FINAL ==========
                         st.markdown("### 📋 Resultado Final")
                         
-                        if coinciden and todos_coinciden:
-                            st.success("🎉 **VALIDACIÓN EXITOSA** - Todos los valores coinciden")
+                        # Evaluar resultado general considerando tanto valores como pasos
+                        if coinciden and todos_coinciden_valores and pasos_coinciden and todos_coinciden_pasos:
+                            st.success("🎉 **VALIDACIÓN EXITOSA** - Todos los valores y pasos coinciden")
                             st.balloons()
-                        elif coinciden and not todos_coinciden:
-                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - El total coincide, pero hay diferencias por peaje")
-                        elif not coinciden and todos_coinciden:
-                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los peajes coinciden, pero el total tiene diferencias")
+                        elif (coinciden and todos_coinciden_valores) and not (pasos_coinciden and todos_coinciden_pasos):
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los valores coinciden, pero hay diferencias en los pasos")
+                        elif not (coinciden and todos_coinciden_valores) and (pasos_coinciden and todos_coinciden_pasos):
+                            st.warning("⚠️ **VALIDACIÓN PARCIAL** - Los pasos coinciden, pero hay diferencias en los valores")
                         else:
-                            st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias en total y peajes")
+                            st.error("❌ **VALIDACIÓN FALLIDA** - Existen diferencias tanto en valores como en pasos")
                         
                         # Botón para ver detalles adicionales
                         with st.expander("🔍 Ver Detalles Completos y Capturas"):
@@ -1474,8 +1591,9 @@ def main():
                             st.markdown("#### 📊 Tabla Detallada")
                             resumen_data = []
                             
+                            # Total General (Valor)
                             resumen_data.append({
-                                'Concepto': 'TOTAL GENERAL',
+                                'Concepto': 'TOTAL GENERAL (Valor)',
                                 'Power BI': f"${powerbi_numero:,.0f}".replace(",", "."),
                                 'Excel': f"${excel_numero:,.0f}".replace(",", "."),
                                 'Estado': '✅ Coincide' if coinciden else '❌ No coincide',
@@ -1483,50 +1601,47 @@ def main():
                                 'Dif. %': f"{abs(powerbi_numero - excel_numero)/excel_numero*100:.2f}%" if excel_numero > 0 else "N/A"
                             })
                             
-                            # Agregar CANTIDAD DE PASOS a la tabla detallada
-                            resumen_data.append({
-                                'Concepto': 'CANTIDAD DE PASOS',
-                                'Power BI': cantidad_pasos_texto,
-                                'Excel': f"{total_pasos:,}".replace(",", "."),
-                                'Estado': 'ℹ️ Información',
-                                'Diferencia': 'N/A',
-                                'Dif. %': 'N/A'
-                            })
+                            # Total General (Pasos)
+                            if cantidad_pasos_texto and cantidad_pasos_texto != 'No encontrado':
+                                resumen_data.append({
+                                    'Concepto': 'TOTAL GENERAL (Pasos)',
+                                    'Power BI': f"{powerbi_pasos_num:,}",
+                                    'Excel': f"{total_pasos:,}",
+                                    'Estado': '✅ Coincide' if pasos_coinciden else '❌ No coincide',
+                                    'Diferencia': f"{pasos_diferencia:,}",
+                                    'Dif. %': f"{pasos_diferencia/total_pasos*100:.2f}%" if total_pasos > 0 else "N/A"
+                                })
                             
-                            # Agregar PASOS POR PEAJE a la tabla detallada
-                            if resumen_pasos:
-                                for peaje in ['CHICORAL', 'COCORA', 'GUALANDAY']:
-                                    pasos_powerbi = resumen_pasos.get(peaje, 'N/A')
-                                    resumen_data.append({
-                                        'Concepto': f'{peaje} - PASOS',
-                                        'Power BI': pasos_powerbi,
-                                        'Excel': f"{pasos.get(peaje, 0):,}".replace(",", "."),
-                                        'Estado': 'ℹ️ Información',
-                                        'Diferencia': 'N/A',
-                                        'Dif. %': 'N/A'
-                                    })
-                                
-                                if 'TOTAL' in resumen_pasos:
-                                    resumen_data.append({
-                                        'Concepto': 'TOTAL - PASOS',
-                                        'Power BI': resumen_pasos['TOTAL'],
-                                        'Excel': f"{total_pasos:,}".replace(",", "."),
-                                        'Estado': 'ℹ️ Información',
-                                        'Diferencia': 'N/A',
-                                        'Dif. %': 'N/A'
-                                    })
-                            
+                            # Agregar datos por peaje
                             for peaje in ['CHICORAL', 'GUALANDAY', 'COCORA']:
                                 comp = comparaciones_peajes[peaje]
                                 excel_val = comp['excel_numero']
+                                
+                                # Valor del peaje
                                 resumen_data.append({
-                                    'Concepto': peaje,
+                                    'Concepto': f'{peaje} - VALOR',
                                     'Power BI': comp['powerbi_texto'],
                                     'Excel': f"${comp['excel_numero']:,.0f}".replace(",", "."),
                                     'Estado': '✅ Coincide' if comp['coinciden'] else '❌ No coincide',
                                     'Diferencia': f"${comp['diferencia']:,.0f}".replace(",", "."),
                                     'Dif. %': f"{comp['diferencia']/excel_val*100:.2f}%" if excel_val > 0 else "N/A"
                                 })
+                                
+                                # Pasos del peaje
+                                if resumen_pasos and peaje in resumen_pasos:
+                                    pasos_powerbi = resumen_pasos.get(peaje, 'N/A')
+                                    pasos_excel_val = comp['pasos_excel']
+                                    pasos_dif = comp.get('pasos_diferencia', 0)
+                                    pasos_coincide = comp.get('pasos_coinciden', False)
+                                    
+                                    resumen_data.append({
+                                        'Concepto': f'{peaje} - PASOS',
+                                        'Power BI': pasos_powerbi,
+                                        'Excel': f"{pasos_excel_val:,}",
+                                        'Estado': '✅ Coincide' if pasos_coincide else '❌ No coincide',
+                                        'Diferencia': f"{pasos_dif:,}",
+                                        'Dif. %': f"{pasos_dif/pasos_excel_val*100:.2f}%" if pasos_excel_val > 0 else "N/A"
+                                    })
                             
                             df_resumen = pd.DataFrame(resumen_data)
                             st.dataframe(df_resumen, use_container_width=True, hide_index=True)
@@ -1575,14 +1690,13 @@ def main():
         3. **Seleccionar fecha** de conciliación en Power BI  
         4. **Comparar**: Extrae valores de Power BI y compara con Excel
         
-        **Características NUEVAS (v2.4):**
+        **Características NUEVAS (v2.5):**
         - ✅ **Comparación Total**: Valida el "VALOR A PAGAR A COMERCIO" total
-        - ✅ **Cantidad de Pasos**: Extrae y muestra "CANTIDAD PASOS" del Power BI
-        - ✅ **Pasos por Peaje MEJORADO**: Extrae correctamente de "RESUMEN COMERCIOS" la columna "Cant Pasos"
-        - ✅ **Pasos desde Excel**: Extrae automáticamente los pasos de cada hoja del Excel
+        - ✅ **Comparación de Pasos**: Valida el "CANTIDAD PASOS" total entre Power BI y Excel
         - ✅ **Comparación por Peaje**: Valida valores individuales de CHICORAL, COCORA y GUALANDAY
+        - ✅ **Comparación de Pasos por Peaje**: Valida pasos individuales por peaje entre Power BI y Excel
         - ✅ **Resumen Detallado**: Tabla completa con todas las comparaciones (valores y pasos)
-        - ✅ **Validación Dual**: Verifica coincidencias tanto en total como por peaje
+        - ✅ **Validación Completa**: Verifica coincidencias tanto en valores como en pasos
         
         **Características Mantenidas:**
         - ✅ **Power BI Funcional**: Usa la extracción probada que funciona
@@ -1595,6 +1709,7 @@ def main():
         - Los valores deben estar claramente identificados en el Power BI
         - Las fechas deben coincidir exactamente con las del reporte Power BI
         - Los pasos se extraen automáticamente del Excel junto con los valores
+        - La comparación de pasos es exacta (sin tolerancia)
         """)
 
 if __name__ == "__main__":
@@ -1602,4 +1717,4 @@ if __name__ == "__main__":
 
     # Footer
     st.markdown("---")
-    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.4</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer">💻 Desarrollado por Angel Torres | 🚀 Powered by Streamlit | v2.5</div>', unsafe_allow_html=True)
